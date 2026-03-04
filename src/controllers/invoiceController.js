@@ -242,14 +242,26 @@ const createInvoice = async (req, res) => {
         if (company.apisunatPersonaId && company.apisunatPersonaToken) {
             try {
                 const details = await prisma.invoiceDetail.findMany({
-                    where: { invoiceId: result.id }
+                    where: { invoiceId: result.id },
+                    include: { service: true }
                 });
-                const payload = buildInvoicePayload({ company, invoice: result, details });
-                const apiRes = await sendToApisunat({
-                    personaId: company.apisunatPersonaId,
-                    personaToken: company.apisunatPersonaToken,
-                    payload
+                const payload = buildInvoicePayload({
+                    company,
+                    invoice: result,
+                    customer: {
+                        customerName: result.razonSocial,
+                        documentType: result.tipoDocumento,
+                        documentId: result.nroDocumento,
+                        address: result.direccionCliente
+                    },
+                    items: details.map(d => ({
+                        ...d,
+                        price: d.precioConIgv / d.cantidad,
+                        quantity: d.cantidad,
+                        discount: d.descuento || 0
+                    }))
                 });
+                const apiRes = await sendToApisunat(payload);
                 await prisma.invoice.update({
                     where: { id: result.id },
                     data: { apisunatStatus: 'SENT', apisunatResponse: apiRes }
