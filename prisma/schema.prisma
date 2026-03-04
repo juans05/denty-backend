@@ -1,0 +1,551 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Company {
+  id             Int       @id @default(autoincrement())
+  name           String
+  commercialName String?
+  taxId          String    @unique
+  phone          String?
+  address        String?
+  receptionEmail String?
+  logo           String?
+  website        String?
+  description    String?
+  active               Boolean   @default(true)
+  apisunatPersonaId    String?
+  apisunatPersonaToken String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  branches             Branch[]
+  patients             Patient[]
+  services             Service[]
+  users                User[]
+  profiles             Profile[]
+  consentTemplates     ConsentTemplate[]
+  payments             Payment[]
+  invoices             Invoice[]
+  expenses             Expense[]
+  cashCloses           CashClose[]
+  treatmentPlans       TreatmentPlan[]
+  invoiceSeries        InvoiceSerie[]
+}
+
+model Branch {
+  id              Int              @id @default(autoincrement())
+  name            String
+  address         String?
+  phone           String?
+  companyId       Int
+  active          Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  appointments    Appointment[]
+  company         Company          @relation(fields: [companyId], references: [id])
+  users           User[]
+  consultories    Consultory[]
+  doctorSchedules DoctorSchedule[]
+  blockedSlots    BlockedSlot[]
+  expenses        Expense[]
+  cashCloses      CashClose[]
+  invoices        Invoice[]
+  payments        Payment[]
+  treatmentPlans  TreatmentPlan[]
+
+  // ── Series de facturación ──
+  seriesBoleta    String?
+  seriesFactura   String?
+  seriesNCBoleta  String?
+  seriesNCFactura String?
+  invoiceSeries   InvoiceSerie[]
+}
+
+model User {
+  id             Int             @id @default(autoincrement())
+  email          String          @unique
+  password       String
+  name           String
+  role           Role            @default(DENTIST)
+  active         Boolean         @default(true)
+  companyId      Int
+  branchId       Int?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  appointments        Appointment[]    @relation("DoctorAppointments")
+  clinicalForms       ClinicalForm[]   @relation("DoctorClinicalForms")
+  odontogramLogs      OdontogramLog[]  @relation("DoctorOdontogramLogs")
+  treatmentPlans      TreatmentPlan[]  @relation("DoctorTreatments")
+  branch              Branch?          @relation(fields: [branchId], references: [id])
+  company             Company          @relation(fields: [companyId], references: [id])
+  profileId           Int?
+  profile             Profile?         @relation(fields: [profileId], references: [id])
+  doctorSchedules     DoctorSchedule[] @relation("DoctorSchedules")
+  blockedSlots        BlockedSlot[]    @relation("DoctorBlockedSlots")
+  createdBlockedSlots BlockedSlot[]    @relation("BlockedSlotCreator")
+  createdExpenses     Expense[]        @relation("ExpenseCreator")
+  voidedExpenses      Expense[]        @relation("ExpenseVoider")
+  cashCloses          CashClose[]      @relation("CashCloseBy")
+  invoices            Invoice[]        @relation("InvoiceCreator")
+  voidedInvoices      Invoice[]        @relation("InvoiceVoider")
+  payments            Payment[]        @relation("PaymentCreator")
+}
+
+model Patient {
+  id                 Int             @id @default(autoincrement())
+  firstName          String
+  lastName           String
+  paternalSurname    String?
+  maternalSurname    String?
+  documentType       String          @default("DNI")
+  documentId         String?         @unique
+  nationality        String?         @default("Peruano")
+  birthDate          DateTime
+  gender             String          @default("SIN ESPECIFICAR")
+  civilStatus        String?         @default("SIN ESPECIFICAR")
+  phoneMobile        String?
+  phoneHome          String?
+  phone              String?
+  email              String?
+  webUser            String?
+  webPassword        String?
+  whatsappEnabled    Boolean         @default(true)
+  ubigeoAddress      String?
+  ubigeoCode         String?
+  address            String?
+  reference          String?
+  medicalHistory     String?
+  active             Boolean         @default(true)
+  companyId          Int
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  additionalInfo     String?
+  allergies          String?
+  birthCountry       String?         @default("Perú")
+  fiscalData         Json?
+  guardianDocumentId String?
+  guardianName       String?
+  guardianPhone      String?
+  hasGuardian        Boolean         @default(false)
+  hcNumber           String?         @unique
+  insurance          String?
+  leadSource         String?
+  lineOfBusiness     String?
+  nickname           String?
+  notes              String?
+  occupation         String?
+  tags               String?
+  appointments       Appointment[]
+  clinicalForms      ClinicalForm[]
+  odontograms        Odontogram[]
+  odontogramLogs     OdontogramLog[]
+  company            Company         @relation(fields: [companyId], references: [id])
+  treatmentPlans     TreatmentPlan[]
+  consents           PatientConsent[]
+  patientFiles       PatientFile[]
+}
+
+model Appointment {
+  id             Int             @id @default(autoincrement())
+  date           DateTime
+  status         String          @default("SCHEDULED")
+  reason         String?
+  urgency        String          @default("NORMAL")
+  duration       Int             @default(30)
+  notes          String?
+  patientId      Int
+  doctorId       Int
+  branchId       Int
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  branch         Branch          @relation(fields: [branchId], references: [id])
+  doctor         User            @relation("DoctorAppointments", fields: [doctorId], references: [id])
+  patient        Patient         @relation(fields: [patientId], references: [id])
+  treatmentItems TreatmentItem[]
+  consultoryId   Int?
+  consultory     Consultory?     @relation(fields: [consultoryId], references: [id])
+}
+
+model Service {
+  id             Int             @id @default(autoincrement())
+  name           String
+  category       String
+  description    String?
+  price          Float
+  duration       Int             @default(30)
+  active         Boolean         @default(true)
+  companyId      Int
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  company        Company         @relation(fields: [companyId], references: [id])
+  treatmentItems TreatmentItem[]
+  invoiceDetails InvoiceDetail[]
+}
+
+model TreatmentPlan {
+  id             Int             @id @default(autoincrement())
+  number         Int?            // correlativo por empresa (ej: 1, 2, 3…)
+  patientId      Int
+  doctorId       Int
+  companyId      Int?            // empresa a la que pertenece el presupuesto
+  branchId       Int?            // sede donde se creó
+  name           String?
+  status         String          @default("PENDING")  // PENDING, APPROVED, COMPLETED, PAID, PARTIAL_PAYMENT, PENDING_PAYMENT
+  discount       Float           @default(0)
+  montoPendiente Float?                               // monto por cobrar en caso de pago parcial
+  notes          String?
+  notesPatient   String?
+  notesInternal  String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  items          TreatmentItem[]
+  payments       Payment[]
+  doctor         User            @relation("DoctorTreatments", fields: [doctorId], references: [id])
+  patient        Patient         @relation(fields: [patientId], references: [id])
+  company        Company?        @relation(fields: [companyId], references: [id])
+  branch         Branch?         @relation(fields: [branchId], references: [id])
+  invoices       Invoice[]       @relation("TreatmentInvoices")
+}
+
+model TreatmentItem {
+  id              Int            @id @default(autoincrement())
+  treatmentPlanId Int?
+  serviceId       Int
+  toothNumber     String?
+  price           Float
+  quantity        Int            @default(1)
+  discount        Float          @default(0)
+  status          String         @default("PENDING") // PENDING | COMPLETED | INVOICED
+  invoiceId       Int?           // set when this item is included in an invoice
+  appointmentId   Int?
+  notes           String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  appointment     Appointment?   @relation(fields: [appointmentId], references: [id])
+  invoice         Invoice?       @relation("InvoiceItems", fields: [invoiceId], references: [id])
+  service         Service        @relation(fields: [serviceId], references: [id])
+  treatmentPlan   TreatmentPlan? @relation(fields: [treatmentPlanId], references: [id])
+}
+
+model Invoice {
+  id               Int             @id @default(autoincrement())
+  // ── Identificación ──────────────────────────────────────────────────────
+  number           String          @unique  // ej: F001-00000001
+  serie            String?                  // F001, B001
+  correlativo      Int?
+  type             String          @default("BOLETA")   // BOLETA, FACTURA
+  // ── Estado: EMITIDO | ANULADO ───────────────────────────────────────────
+  status           String          @default("EMITIDO")
+  // ── Fechas ──────────────────────────────────────────────────────────────
+  fechaEmision     DateTime?                // fecha de emisión explícita
+  fechaVencimiento DateTime?                // fecha de vencimiento
+  // ── Importes ────────────────────────────────────────────────────────────
+  montoSinIgv      Float?                   // subtotal sin IGV
+  igv              Float?                   // monto IGV (18%)
+  montoConIgv      Float                    // total a pagar con IGV
+  importeEnLetras  String?                  // ej: "SESENTA Y DOS CON 00/100 SOLES"
+  // ── Forma de pago ───────────────────────────────────────────────────────
+  formaPago        String?         @default("CONTADO")  // CONTADO | CREDITO
+  // ── Datos del cliente ───────────────────────────────────────────────────
+  razonSocial      String?                  // nombre o razón social del cliente
+  tipoDocumento    String?                  // DNI, RUC, CE …
+  nroDocumento     String?                  // número de documento
+  direccionCliente String?
+  email            String?
+  // ── Empresa emisora (snapshot) ──────────────────────────────────────────
+  empresaFacturar  String?                  // nombre de la clínica / empresa
+  sedeNombre       String?                  // sede / sucursal
+  // ── Estado APISUNAT ─────────────────────────────────────────────────────
+  // PENDING | SENT | ERROR | SKIPPED
+  apisunatStatus   String?
+  apisunatResponse Json?
+  // ── Relaciones ──────────────────────────────────────────────────────────
+  patientId        Int
+  companyId        Int
+  branchId         Int?
+  createdBy        Int?
+  voidedBy         Int?
+  voidedAt         DateTime?
+  ncAppliedId      Int?                    // ID de la factura a la que aplica esta NC
+  treatmentPlanId  Int?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  treatmentPlan    TreatmentPlan?  @relation("TreatmentInvoices", fields: [treatmentPlanId], references: [id])
+  company          Company         @relation(fields: [companyId], references: [id])
+  branch           Branch?         @relation(fields: [branchId], references: [id])
+  creator          User?           @relation("InvoiceCreator", fields: [createdBy], references: [id])
+  voider           User?           @relation("InvoiceVoider", fields: [voidedBy], references: [id])
+  payments         Payment[]
+  details          InvoiceDetail[]
+  items            TreatmentItem[] @relation("InvoiceItems")
+}
+
+model InvoiceDetail {
+  id              Int      @id @default(autoincrement())
+  invoiceId       Int
+  // ── Identificación del ítem ───────────────────────────────────────────
+  itemCodigo      String?           // código interno del servicio
+  nombreProducto  String            // nombre del servicio + pieza dental
+  cantidad        Int      @default(1)
+  // ── Precios ──────────────────────────────────────────────────────────
+  precioUnitario  Float             // precio unitario SIN IGV (por unidad)
+  precioSinIgv    Float             // precioUnitario × cantidad
+  igv             Float             // monto IGV de la línea
+  precioConIgv    Float             // total línea CON IGV
+  descuento       Float    @default(0) // % descuento aplicado
+  // ── Referencia dental ────────────────────────────────────────────────
+  toothNumber     String?
+  serviceId       Int?
+  createdAt       DateTime @default(now())
+  invoice         Invoice  @relation(fields: [invoiceId], references: [id])
+  service         Service? @relation(fields: [serviceId], references: [id])
+}
+
+model Payment {
+  id              Int            @id @default(autoincrement())
+  amount          Float
+  method          String         @default("CASH") // CASH, CARD, TRANSFER, APP
+  currency        String?        @default("SOLES") // SOLES, DOLARES
+  reference       String?
+  cardType        String?
+  lot             String?
+  appType         String?
+  treatmentPlanId Int?
+  appointmentId   Int?
+  invoiceId       Int?
+  companyId       Int
+  branchId        Int?
+  createdBy       Int?
+  createdAt       DateTime       @default(now())
+  treatmentPlan   TreatmentPlan? @relation(fields: [treatmentPlanId], references: [id])
+  company         Company        @relation(fields: [companyId], references: [id])
+  branch          Branch?        @relation(fields: [branchId], references: [id])
+  invoice         Invoice?       @relation(fields: [invoiceId], references: [id])
+  creator         User?          @relation("PaymentCreator", fields: [createdBy], references: [id])
+}
+
+model Odontogram {
+  id           Int      @id @default(autoincrement())
+  data         Json
+  patientId    Int
+  visitDate    DateTime @default(now())  // Date of this clinical visit
+  sessionNotes String?                    // Optional notes for this visit session
+  doctorId     Int?                       // Who registered this visit
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  patient      Patient  @relation(fields: [patientId], references: [id])
+}
+
+model OdontogramLog {
+  id          Int      @id @default(autoincrement())
+  patientId   Int
+  toothNumber String
+  conditionId String?
+  action      String
+  description String?
+  doctorId    Int
+  createdAt   DateTime @default(now())
+  doctor      User     @relation("DoctorOdontogramLogs", fields: [doctorId], references: [id])
+  patient     Patient  @relation(fields: [patientId], references: [id])
+}
+
+model ClinicalForm {
+  id        Int      @id @default(autoincrement())
+  type      String
+  data      Json
+  patientId Int
+  doctorId  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  doctor    User     @relation("DoctorClinicalForms", fields: [doctorId], references: [id])
+  patient   Patient  @relation(fields: [patientId], references: [id])
+
+  @@unique([patientId, type])
+}
+
+enum Role {
+  ADMIN
+  DENTIST
+  RECEPTIONIST
+  ASSISTANT
+}
+
+model Consultory {
+  id        Int           @id @default(autoincrement())
+  name      String
+  branchId  Int
+  active    Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  branch    Branch        @relation(fields: [branchId], references: [id])
+  appointments Appointment[]
+}
+
+model ConsentTemplate {
+  id        Int              @id @default(autoincrement())
+  title     String
+  content   String           @db.Text
+  active    Boolean          @default(true)
+  companyId Int
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  company   Company          @relation(fields: [companyId], references: [id])
+  consents  PatientConsent[]
+}
+
+model PatientConsent {
+  id         Int             @id @default(autoincrement())
+  patientId  Int
+  templateId Int
+  signature  String?         @db.Text
+  fileUrl    String?
+  signedBy   String?
+  signedAt   DateTime        @default(now())
+  patient    Patient         @relation(fields: [patientId], references: [id])
+  template   ConsentTemplate @relation(fields: [templateId], references: [id])
+}
+
+model PatientFile {
+  id        Int      @id @default(autoincrement())
+  name      String
+  url       String
+  type      String?  // image, pdf, etc.
+  patientId Int
+  patient   Patient  @relation(fields: [patientId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+// ── Horario semanal del médico por sede ──────────────────────────────────────
+model DoctorSchedule {
+  id        Int      @id @default(autoincrement())
+  doctorId  Int
+  branchId  Int
+  dayOfWeek Int      // 0=Dom, 1=Lun, 2=Mar, 3=Mié, 4=Jue, 5=Vie, 6=Sáb
+  startTime String   // "08:00"
+  endTime   String   // "18:00"
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  doctor    User     @relation("DoctorSchedules", fields: [doctorId], references: [id])
+  branch    Branch   @relation(fields: [branchId], references: [id])
+
+  @@unique([doctorId, branchId, dayOfWeek])
+}
+
+// ── Horarios bloqueados (vacaciones, mantenimiento, etc.) ────────────────────
+model BlockedSlot {
+  id        Int      @id @default(autoincrement())
+  doctorId  Int?     // null = bloquea toda la sede
+  branchId  Int
+  startAt   DateTime
+  endAt     DateTime
+  reason    String?
+  createdBy Int
+  createdAt DateTime @default(now())
+  doctor    User?    @relation("DoctorBlockedSlots", fields: [doctorId], references: [id])
+  branch    Branch   @relation(fields: [branchId], references: [id])
+  creator   User     @relation("BlockedSlotCreator", fields: [createdBy], references: [id])
+}
+
+// ── Egresos / Gastos de la clínica por sede ──────────────────────────────────
+model Expense {
+  id            Int      @id @default(autoincrement())
+  type          String   // Materiales | Servicios | Sueldos | Alquiler | Otros
+  concept       String
+  invoiceRef    String?  // N° factura del proveedor
+  paymentMethod String   @default("EFECTIVO") // EFECTIVO | TARJETA | TRANSFERENCIA | CHEQUE
+  amount        Float
+  currency      String   @default("PEN")
+  notes         String?
+  status        String   @default("ACTIVE") // ACTIVE | VOIDED
+  voidedAt      DateTime?
+  voidedReason  String?
+  voidedBy      Int?
+  branchId      Int
+  companyId     Int
+  createdBy     Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  branch        Branch   @relation(fields: [branchId], references: [id])
+  company       Company  @relation(fields: [companyId], references: [id])
+  creator       User     @relation("ExpenseCreator", fields: [createdBy], references: [id])
+  voider        User?    @relation("ExpenseVoider", fields: [voidedBy], references: [id])
+}
+
+// ── Cierre de caja diario por sede y cajera ──────────────────────────────────
+model CashClose {
+  id              Int      @id @default(autoincrement())
+  date            DateTime // Fecha del cierre (solo día)
+  branchId        Int
+  companyId       Int
+  closedBy        Int      // userId de la cajera
+  totalIncome     Float    @default(0)
+  totalExpenses   Float    @default(0)
+  netBalance      Float    @default(0)
+  cashAmount      Float    @default(0)
+  cardAmount      Float    @default(0)
+  transferAmount  Float    @default(0)
+  invoiceCount    Int      @default(0)
+  expenseCount    Int      @default(0)
+  notes           String?
+  createdAt       DateTime @default(now())
+  branch          Branch   @relation(fields: [branchId], references: [id])
+  company         Company  @relation(fields: [companyId], references: [id])
+  cashier         User     @relation("CashCloseBy", fields: [closedBy], references: [id])
+}
+
+// ── Gestión de Perfiles y Permisos Dinámicos ──────────────────────────────────
+
+model Profile {
+  id          Int                 @id @default(autoincrement())
+  name        String
+  description String?
+  companyId   Int
+  company     Company             @relation(fields: [companyId], references: [id])
+  users       User[]
+  permissions ProfilePermission[]
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@unique([name, companyId])
+}
+
+model Permission {
+  id       Int                 @id @default(autoincrement())
+  key      String              @unique // ej: "view_history", "manage_finance"
+  name     String // ej: "Ver Historias Clínicas"
+  module   String // ej: "Historias"
+  profiles ProfilePermission[]
+}
+
+model ProfilePermission {
+  profileId    Int
+  permissionId Int
+  profile      Profile    @relation(fields: [profileId], references: [id])
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([profileId, permissionId])
+}
+
+// ── Series de comprobantes por sede ──────────────────────────────────────────
+// Configura el prefijo de serie (ej: SM1, SM2, B001, F001) para cada sede+tipo.
+// El correlativo real se deriva de la tabla Invoice para garantizar consistencia.
+model InvoiceSerie {
+  id          Int      @id @default(autoincrement())
+  branchId    Int
+  companyId   Int
+  type        String   // BOLETA | FACTURA
+  serie       String   // e.g., SM1, SM2, B001, F001
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  branch      Branch   @relation(fields: [branchId], references: [id])
+  company     Company  @relation(fields: [companyId], references: [id])
+
+  @@unique([branchId, type])
+}

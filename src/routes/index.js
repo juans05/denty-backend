@@ -1,0 +1,36 @@
+const express = require('express');
+const router = express.Router();
+
+const authRoutes = require('./authRoutes');
+const patientRoutes = require('./patientRoutes');
+const appointmentRoutes = require('./appointmentRoutes');
+const branchRoutes = require('./branchRoutes');
+const serviceRoutes = require('./serviceRoutes');
+const treatmentRoutes = require('./treatmentRoutes');
+const odontogramRoutes = require('./odontogramRoutes');
+const clinicalRoutes = require('./clinicalRoutes');
+const companyRoutes = require('./companyRoutes');
+const billingRoutes = require('./billingRoutes');
+const consultoryRoutes = require('./consultoryRoutes');
+const consentRoutes = require('./consentRoutes');
+const patientFileRoutes = require('./patientFileRoutes');
+const dashboardRoutes = require('./dashboardRoutes');
+const scheduleRoutes  = require('./scheduleRoutes');
+
+router.use('/auth', authRoutes);
+router.use('/patients', patientRoutes);
+router.use('/appointments', appointmentRoutes);
+router.use('/branches', branchRoutes);
+router.use('/services', serviceRoutes);
+router.use('/treatments', treatmentRoutes);
+router.use('/odontograms', odontogramRoutes);
+router.use('/clinical', clinicalRoutes);
+router.use('/company', companyRoutes);
+router.use('/billing', billingRoutes);
+router.use('/consultories', consultoryRoutes);
+router.use('/consents', consentRoutes);
+router.use('/patient-files', patientFileRoutes);
+router.use('/dashboard', dashboardRoutes);
+router.use('/schedule',  scheduleRoutes);
+
+module.exports = router;
