@@ -112,42 +112,53 @@ const register = async (req, res) => {
         // companyId comes from the authenticated token (secure), fallback to body
         const companyId = req.user?.companyId || req.body.companyId;
 
+        console.log('[AuthController] Register attempt:', { email, name, role, branchId, profileId, companyId });
+
         if (!email || !password || !name || !companyId) {
+            console.warn('[AuthController] Missing required fields');
             return res.status(400).json({ message: 'Campos requeridos: email, password, nombre, companyId' });
         }
 
         const existingUser = await prisma.user.findUnique({ where: { email } });
         if (existingUser) {
+            console.warn(`[AuthController] Email already in use: ${email}`);
             return res.status(400).json({ message: 'El correo ya está en uso por otro usuario' });
         }
 
         const hashedPassword = await bcrypt.hash(password, 12);
 
         // Buscar perfil por defecto si no se provee profileId
-        let finalProfileId = profileId ? parseInt(profileId) : null;
+        let finalProfileId = (profileId && profileId !== "") ? parseInt(profileId) : null;
         if (!finalProfileId) {
             const profileName = role === 'ADMIN' ? 'ADMINISTRADOR' : (role === 'RECEPTIONIST' || role === 'ASSISTANT' ? 'RECEPCIÓN' : 'ODONTÓLOGO');
+            console.log(`[AuthController] No profileId provided, looking for default: ${profileName} for companyId: ${companyId}`);
             const defaultProfile = await prisma.profile.findFirst({
                 where: { name: profileName, companyId: parseInt(companyId) }
             });
             finalProfileId = defaultProfile?.id;
+            console.log(`[AuthController] Found default profileId: ${finalProfileId}`);
         }
 
+        const createData = {
+            email,
+            password: hashedPassword,
+            name,
+            role: role || 'DENTIST',
+            companyId: parseInt(companyId),
+            branchId: (branchId && branchId !== "") ? parseInt(branchId) : null,
+            profileId: finalProfileId
+        };
+
+        console.log('[AuthController] Creating user with data:', createData);
+
         const user = await prisma.user.create({
-            data: {
-                email,
-                password: hashedPassword,
-                name,
-                role: role || 'DENTIST',
-                companyId: parseInt(companyId),
-                branchId: branchId ? parseInt(branchId) : null,
-                profileId: finalProfileId
-            },
+            data: createData,
         });
 
+        console.log('[AuthController] User created successfully:', user.id);
         res.status(201).json({ message: 'Usuario creado exitosamente', userId: user.id });
     } catch (error) {
-        console.error('Error en register:', error);
+        console.error('[AuthController] Error in register:', error);
         res.status(500).json({ message: 'Error en el servidor', detail: error.message });
     }
 };
@@ -260,6 +271,8 @@ const updateUser = async (req, res) => {
     try {
         const { companyId } = req.user;
         const { id } = req.params;
+        const { name, email, role, branchId, profileId, active } = req.body;
+        
         const updateData = {
             name,
             email,

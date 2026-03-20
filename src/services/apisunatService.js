@@ -46,7 +46,8 @@ function docSchemeId(docType) {
 }
 
 function invoiceTypeCode(type) {
-    return type === 'FACTURA' ? '01' : '03';
+    const map = { 'FACTURA': '01', 'BOLETA': '03', 'NOTA_CREDITO': '07' };
+    return map[type] || '01';
 }
 
 // ─── Payload builder ─────────────────────────────────────────────────────────
@@ -55,12 +56,13 @@ function invoiceTypeCode(type) {
  * Builds the APISUNAT UBL 2.1 JSON payload.
  *
  * @param {object} opts
- * @param {object} opts.company       - Company record (taxId, name, commercialName, address, apisunatPersonaId, apisunatPersonaToken)
- * @param {object} opts.invoice       - Invoice record (serie, correlativo, type, subtotal, igv, total, createdAt)
- * @param {object} opts.customer      - Billing customer data (customerName, documentType, documentId, address)
- * @param {Array}  opts.items         - TreatmentItem[] with .service, .price, .quantity, .discount
+ * @param {object} opts.company       - Company record
+ * @param {object} opts.invoice       - Invoice record (serie, correlativo, type, etc.)
+ * @param {object} opts.customer      - Billing customer data
+ * @param {Array}  opts.items         - TreatmentItem[]
+ * @param {object} opts.originalDoc   - (Optional) For NC, the original Invoice object
  */
-function buildInvoicePayload({ company, invoice, customer, items }) {
+function buildInvoicePayload({ company, invoice, customer, items, originalDoc = null }) {
     const typeCode   = invoiceTypeCode(invoice.type);
     const serie      = invoice.serie;
     const corrPad    = String(invoice.correlativo).padStart(8, '0');
@@ -85,59 +87,36 @@ function buildInvoicePayload({ company, invoice, customer, items }) {
         const unitBase   = parseFloat((unitPrice / 1.18).toFixed(2));
 
         return {
-            "cbc:ID": { "_text": idx + 1 },
-            "cbc:InvoicedQuantity": {
-                "_attributes": { "unitCode": "NIU" },
-                "_text": qty
-            },
-            "cbc:LineExtensionAmount": {
-                "_attributes": { "currencyID": "PEN" },
-                "_text": lineBase
-            },
+            "cbc:ID": idx + 1,
+            "cbc:InvoicedQuantity": qty,
+            "cbc:LineExtensionAmount": lineBase,
             "cac:PricingReference": {
                 "cac:AlternativeConditionPrice": {
-                    "cbc:PriceAmount": {
-                        "_attributes": { "currencyID": "PEN" },
-                        "_text": lineTotal
-                    },
-                    "cbc:PriceTypeCode": { "_text": "01" }
+                    "cbc:PriceAmount": lineTotal,
+                    "cbc:PriceTypeCode": "01"
                 }
             },
             "cac:TaxTotal": {
-                "cbc:TaxAmount": {
-                    "_attributes": { "currencyID": "PEN" },
-                    "_text": lineIgv
-                },
+                "cbc:TaxAmount": lineIgv,
                 "cac:TaxSubtotal": [{
-                    "cbc:TaxableAmount": {
-                        "_attributes": { "currencyID": "PEN" },
-                        "_text": lineBase
-                    },
-                    "cbc:TaxAmount": {
-                        "_attributes": { "currencyID": "PEN" },
-                        "_text": lineIgv
-                    },
+                    "cbc:TaxableAmount": lineBase,
+                    "cbc:TaxAmount": lineIgv,
                     "cac:TaxCategory": {
-                        "cbc:Percent": { "_text": 18 },
-                        "cbc:TaxExemptionReasonCode": { "_text": "10" },
+                        "cbc:Percent": 18,
+                        "cbc:TaxExemptionReasonCode": "10",
                         "cac:TaxScheme": {
-                            "cbc:ID":          { "_text": "1000" },
-                            "cbc:Name":        { "_text": "IGV"  },
-                            "cbc:TaxTypeCode": { "_text": "VAT"  }
+                            "cbc:ID": "1000",
+                            "cbc:Name": "IGV",
+                            "cbc:TaxTypeCode": "VAT"
                         }
                     }
                 }]
             },
             "cac:Item": {
-                "cbc:Description": {
-                    "_text": item.service?.name || 'Servicio dental'
-                }
+                "cbc:Description": item.service?.name || 'Servicio dental'
             },
             "cac:Price": {
-                "cbc:PriceAmount": {
-                    "_attributes": { "currencyID": "PEN" },
-                    "_text": unitBase
-                }
+                "cbc:PriceAmount": unitBase
             }
         };
     });
@@ -146,19 +125,14 @@ function buildInvoicePayload({ company, invoice, customer, items }) {
     const customerParty = {
         "cac:Party": {
             "cac:PartyIdentification": {
-                "cbc:ID": {
-                    "_attributes": { "schemeID": docSchemeId(customer.documentType) },
-                    "_text": customer.documentId || '00000000'
-                }
+                "cbc:ID": customer.documentId || '00000000'
             },
             "cac:PartyLegalEntity": {
-                "cbc:RegistrationName": {
-                    "_text": customer.customerName || 'CLIENTE VARIOS'
-                },
+                "cbc:RegistrationName": customer.customerName || 'CLIENTE VARIOS',
                 ...(customer.address ? {
                     "cac:RegistrationAddress": {
                         "cac:AddressLine": {
-                            "cbc:Line": { "_text": customer.address }
+                            "cbc:Line": customer.address
                         }
                     }
                 } : {})
@@ -172,38 +146,44 @@ function buildInvoicePayload({ company, invoice, customer, items }) {
         personaToken: company.apisunatPersonaToken,
         fileName,
         documentBody: {
-            "cbc:UBLVersionID":    { "_text": "2.1" },
-            "cbc:CustomizationID": { "_text": "2.0" },
-            "cbc:ID":              { "_text": fullNumber },
-            "cbc:IssueDate":       { "_text": issueDate },
-            "cbc:IssueTime":       { "_text": issueTime },
-            "cbc:InvoiceTypeCode": {
-                "_attributes": { "listID": "0101" },
-                "_text": typeCode
-            },
-            "cbc:Note": [{
-                "_text": amountToWords(total),
-                "_attributes": { "languageLocaleID": "1000" }
-            }],
-            "cbc:DocumentCurrencyCode": { "_text": "PEN" },
+            "cbc:UBLVersionID":    "2.1",
+            "cbc:CustomizationID": "2.0",
+            "cbc:ID":              fullNumber,
+            "cbc:IssueDate":       issueDate,
+            "cbc:IssueTime":       issueTime,
+            "cbc:InvoiceTypeCode": typeCode,
+
+            ...(originalDoc && invoice.type === 'NOTA_CREDITO' ? {
+                "cac:DiscrepancyResponse": [{
+                    "cbc:ReferenceID": originalDoc.number,
+                    "cbc:ResponseCode": "01",
+                    "cbc:Description": "Anulacion de la operacion"
+                }],
+                "cac:BillingReference": [{
+                    "cac:InvoiceDocumentReference": {
+                        "cbc:ID": originalDoc.number,
+                        "cbc:DocumentTypeCode": invoiceTypeCode(originalDoc.type)
+                    }
+                }]
+            } : {}),
+
+            "cbc:Note": amountToWords(total),
+            "cbc:DocumentCurrencyCode": "PEN",
 
             "cac:AccountingSupplierParty": {
                 "cac:Party": {
                     "cac:PartyIdentification": {
-                        "cbc:ID": {
-                            "_attributes": { "schemeID": "6" },
-                            "_text": company.taxId
-                        }
+                        "cbc:ID": company.taxId
                     },
                     "cac:PartyName": {
-                        "cbc:Name": { "_text": company.commercialName || company.name }
+                        "cbc:Name": company.commercialName || company.name
                     },
                     "cac:PartyLegalEntity": {
-                        "cbc:RegistrationName": { "_text": company.name },
+                        "cbc:RegistrationName": company.name,
                         "cac:RegistrationAddress": {
-                            "cbc:AddressTypeCode": { "_text": "0000" },
+                            "cbc:AddressTypeCode": "0000",
                             "cac:AddressLine": {
-                                "cbc:Line": { "_text": company.address || '' }
+                                "cbc:Line": company.address || ''
                             }
                         }
                     }
@@ -213,70 +193,76 @@ function buildInvoicePayload({ company, invoice, customer, items }) {
             "cac:AccountingCustomerParty": customerParty,
 
             "cac:TaxTotal": {
-                "cbc:TaxAmount": {
-                    "_attributes": { "currencyID": "PEN" },
-                    "_text": parseFloat(igv.toFixed(2))
-                },
+                "cbc:TaxAmount": parseFloat(igv.toFixed(2)),
                 "cac:TaxSubtotal": [{
-                    "cbc:TaxableAmount": {
-                        "_attributes": { "currencyID": "PEN" },
-                        "_text": parseFloat(subtotal.toFixed(2))
-                    },
-                    "cbc:TaxAmount": {
-                        "_attributes": { "currencyID": "PEN" },
-                        "_text": parseFloat(igv.toFixed(2))
-                    },
+                    "cbc:TaxableAmount": parseFloat(subtotal.toFixed(2)),
+                    "cbc:TaxAmount": parseFloat(igv.toFixed(2)),
                     "cac:TaxCategory": {
                         "cac:TaxScheme": {
-                            "cbc:ID":          { "_text": "1000" },
-                            "cbc:Name":        { "_text": "IGV"  },
-                            "cbc:TaxTypeCode": { "_text": "VAT"  }
+                            "cbc:ID": "1000",
+                            "cbc:Name": "IGV",
+                            "cbc:TaxTypeCode": "VAT"
                         }
                     }
                 }]
             },
 
             "cac:LegalMonetaryTotal": {
-                "cbc:LineExtensionAmount": {
-                    "_attributes": { "currencyID": "PEN" },
-                    "_text": parseFloat(subtotal.toFixed(2))
-                },
-                "cbc:TaxInclusiveAmount": {
-                    "_attributes": { "currencyID": "PEN" },
-                    "_text": parseFloat(total.toFixed(2))
-                },
-                "cbc:PayableAmount": {
-                    "_attributes": { "currencyID": "PEN" },
-                    "_text": parseFloat(total.toFixed(2))
-                }
+                "cbc:LineExtensionAmount": parseFloat(subtotal.toFixed(2)),
+                "cbc:TaxInclusiveAmount": parseFloat(total.toFixed(2)),
+                "cbc:PayableAmount": parseFloat(total.toFixed(2))
             },
 
-            "cac:PaymentTerms": [{
-                "cbc:ID":              { "_text": "FormaPago" },
-                "cbc:PaymentMeansID": { "_text": "Contado"   }
-            }],
-
-            "cac:InvoiceLine": invoiceLines
+            [invoice.type === 'NOTA_CREDITO' ? 'cac:CreditNoteLine' : 'cac:InvoiceLine']: invoiceLines
         }
     };
 }
 
-// ─── HTTP call ────────────────────────────────────────────────────────────────
+const axios = require('axios');
 
 async function sendToApisunat(payload) {
     const url = process.env.APISUNAT_URL;
     if (!url) throw new Error('APISUNAT_URL no está configurado en .env');
 
-    const response = await fetch(url, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(payload)
-    });
+    try {
+        const response = await axios.post(url, payload, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 10000 // 10 segundos de timeout
+        });
 
-    let data;
-    try { data = await response.json(); } catch { data = {}; }
-
-    return { ok: response.ok, status: response.status, data };
+        return { 
+            ok: true, 
+            status: response.status, 
+            data: response.data 
+        };
+    } catch (error) {
+        console.error('APISUNAT Axios Error:', error.response?.data || error.message);
+        return { 
+            ok: false, 
+            status: error.response?.status || 500, 
+            data: error.response?.data || { error: error.message } 
+        };
+    }
 }
 
-module.exports = { buildInvoicePayload, sendToApisunat, amountToWords };
+async function sendVoidToApisunat(payload) {
+    const url = process.env.APISUNAT_VOID_URL;
+    if (!url) throw new Error('APISUNAT_VOID_URL no está configurado en .env');
+
+    try {
+        const response = await axios.post(url, payload, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 10000
+        });
+        return { ok: true, status: response.status, data: response.data };
+    } catch (error) {
+        console.error('APISUNAT Void Error:', error.response?.data || error.message);
+        return { 
+            ok: false, 
+            status: error.response?.status || 500, 
+            data: error.response?.data || { error: error.message } 
+        };
+    }
+}
+
+module.exports = { buildInvoicePayload, sendToApisunat, sendVoidToApisunat, amountToWords };

@@ -2,8 +2,11 @@ const prisma = require('../utils/prisma');
 
 const getStats = async (req, res) => {
     try {
-        const { companyId } = req.user;
+        const { companyId, branchId, role } = req.user;
         const id = parseInt(companyId);
+
+        // Filter by branch if user is not admin and has a branchId
+        const branchFilter = (role !== 'ADMIN' && branchId) ? { branchId: parseInt(branchId) } : {};
 
         // ── Rangos de fechas ────────────────────────────────────────────────
         const now = new Date();
@@ -30,32 +33,35 @@ const getStats = async (req, res) => {
             pendingPlansCount,
         ] = await Promise.all([
 
-            // 1. Total pacientes activos
+            // 1. Total pacientes - Note: Patients are company-wide, but we could filter by branch if needed.
+            // For now, let's assume patients are shared, but if you want branch-specific patients, 
+            // you'd need branchId in Patient model.
             prisma.patient.count({ where: { companyId: id, active: true } }),
 
-            // 2. Pacientes nuevos mes anterior (para trend)
+            // 2. Pacientes nuevos mes anterior
             prisma.patient.count({
                 where: { companyId: id, active: true, createdAt: { gte: prevMonthStart, lte: prevMonthEnd } }
             }),
 
             // 3. Citas de hoy
             prisma.appointment.count({
-                where: { branch: { companyId: id }, date: { gte: todayStart, lte: todayEnd } }
+                where: { ...branchFilter, branch: { companyId: id }, date: { gte: todayStart, lte: todayEnd } }
             }),
 
             // 4. Citas este mes
             prisma.appointment.count({
-                where: { branch: { companyId: id }, date: { gte: monthStart, lte: monthEnd } }
+                where: { ...branchFilter, branch: { companyId: id }, date: { gte: monthStart, lte: monthEnd } }
             }),
 
             // 5. Citas mes anterior
             prisma.appointment.count({
-                where: { branch: { companyId: id }, date: { gte: prevMonthStart, lte: prevMonthEnd } }
+                where: { ...branchFilter, branch: { companyId: id }, date: { gte: prevMonthStart, lte: prevMonthEnd } }
             }),
 
             // 6. Próximas citas (hoy en adelante, máx 8)
             prisma.appointment.findMany({
                 where: {
+                    ...branchFilter,
                     branch: { companyId: id },
                     date: { gte: todayStart },
                     status: { not: 'CANCELLED' }
@@ -71,19 +77,20 @@ const getStats = async (req, res) => {
 
             // 7. Ingresos este mes (suma de pagos)
             prisma.payment.aggregate({
-                where: { companyId: id, createdAt: { gte: monthStart, lte: monthEnd } },
+                where: { ...branchFilter, companyId: id, createdAt: { gte: monthStart, lte: monthEnd } },
                 _sum: { amount: true }
             }),
 
             // 8. Ingresos mes anterior
             prisma.payment.aggregate({
-                where: { companyId: id, createdAt: { gte: prevMonthStart, lte: prevMonthEnd } },
+                where: { ...branchFilter, companyId: id, createdAt: { gte: prevMonthStart, lte: prevMonthEnd } },
                 _sum: { amount: true }
             }),
 
             // 9. Planes con pago pendiente o parcial
             prisma.treatmentPlan.count({
                 where: {
+                    ...branchFilter,
                     doctor: { companyId: id },
                     status: { in: ['PENDING_PAYMENT', 'PARTIAL_PAYMENT'] }
                 }

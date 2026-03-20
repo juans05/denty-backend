@@ -15,12 +15,15 @@ const consultoryRoutes = require('./consultoryRoutes');
 const consentRoutes = require('./consentRoutes');
 const patientFileRoutes = require('./patientFileRoutes');
 const dashboardRoutes = require('./dashboardRoutes');
-const scheduleRoutes  = require('./scheduleRoutes');
+const scheduleRoutes = require('./scheduleRoutes');
+const inventoryRoutes = require('./inventoryRoutes');
+const profileRoutes = require('./profileRoutes');
 
 router.use('/auth', authRoutes);
 router.use('/patients', patientRoutes);
 router.use('/appointments', appointmentRoutes);
 router.use('/branches', branchRoutes);
+router.use('/profiles', profileRoutes);
 router.use('/services', serviceRoutes);
 router.use('/treatments', treatmentRoutes);
 router.use('/odontograms', odontogramRoutes);
@@ -31,6 +34,7 @@ router.use('/consultories', consultoryRoutes);
 router.use('/consents', consentRoutes);
 router.use('/patient-files', patientFileRoutes);
 router.use('/dashboard', dashboardRoutes);
-router.use('/schedule',  scheduleRoutes);
+router.use('/schedule', scheduleRoutes);
+router.use('/inventory', inventoryRoutes);
 
 module.exports = router;

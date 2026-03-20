@@ -70,11 +70,22 @@ const createTreatmentPlan = async (req, res) => {
             return res.status(400).json({ message: 'Campos requeridos: patientId, doctorId' });
         }
 
-        const companyId = parseInt(req.user.companyId);
-        const branchId = req.user.branchId ? parseInt(req.user.branchId) : null;
+        const companyId = req.user.companyId;
+        let branchId = req.user.branchId ? parseInt(req.user.branchId) : null;
+        
+        // AUTO-FALLBACK: Si el usuario no tiene sede (ej: es un admin), 
+        // asignamos la primera sede activa de la empresa como default para evitar errores de facturación.
+        if (!branchId) {
+            const firstBranch = await prisma.branch.findFirst({
+                where: { companyId, active: true },
+                orderBy: { id: 'asc' }
+            });
+            if (firstBranch) {
+                branchId = firstBranch.id;
+            }
+        }
 
         // Número secuencial por empresa: MAX(number) + 1
-        // Usamos MAX en lugar de COUNT para tolerar eliminaciones sin romper la secuencia.
         const aggregate = await prisma.treatmentPlan.aggregate({
             where: { companyId },
             _max: { number: true },
@@ -122,6 +133,25 @@ const updateTreatmentPlan = async (req, res) => {
     try {
         const id = parseInt(req.params.id);
         const { status, notes, name, discount, notesPatient, notesInternal } = req.body;
+        const companyId = parseInt(req.user.companyId);
+
+        // Fetch current plan to check if it needs a branch repair
+        const currentPlan = await prisma.treatmentPlan.findUnique({ where: { id } });
+        if (!currentPlan) return res.status(404).json({ message: 'Plan no encontrado' });
+
+        let branchId = req.body.branchId ? parseInt(req.body.branchId) : currentPlan.branchId;
+
+        // Si el plan no tiene branchId (legacy/admin issue), intentamos repararlo con el del usuario o el default
+        if (!branchId) {
+            branchId = req.user.branchId ? parseInt(req.user.branchId) : null;
+            if (!branchId) {
+                const firstBranch = await prisma.branch.findFirst({
+                    where: { companyId, active: true },
+                    orderBy: { id: 'asc' }
+                });
+                branchId = firstBranch?.id || null;
+            }
+        }
 
         const plan = await prisma.treatmentPlan.update({
             where: { id },
@@ -132,7 +162,15 @@ const updateTreatmentPlan = async (req, res) => {
                 ...(discount !== undefined && { discount: parseFloat(discount) }),
                 ...(notesPatient !== undefined && { notesPatient }),
                 ...(notesInternal !== undefined && { notesInternal }),
+                ...(branchId && { branchId }),
             },
+            include: {
+                branch: true, // Incluimos la sede para que el frontend se actualice
+                doctor: { select: { id: true, name: true } },
+                patient: { select: { id: true, firstName: true, paternalSurname: true } },
+                items: { include: { service: true } },
+                payments: true,
+            }
         });
         res.json(plan);
     } catch (error) {
@@ -176,6 +214,13 @@ const updateTreatmentItem = async (req, res) => {
         const id = parseInt(req.params.itemId);
         const { status, notes, price, toothNumber, appointmentId, quantity, discount } = req.body;
 
+        // Fetch current item before updating
+        const currentItem = await prisma.treatmentItem.findUnique({
+            where: { id },
+            include: { service: true },
+        });
+        if (!currentItem) return res.status(404).json({ message: 'Ítem no encontrado' });
+
         const item = await prisma.treatmentItem.update({
             where: { id },
             data: {
@@ -189,7 +234,65 @@ const updateTreatmentItem = async (req, res) => {
             },
             include: { service: true },
         });
-        res.json(item);
+
+        // ── Descuento automático de stock si se marca como COMPLETADO ──────────
+        const stockAlerts = [];
+        if (status === 'COMPLETED' && currentItem.status !== 'COMPLETED') {
+            const qty = parseInt(quantity) || currentItem.quantity || 1;
+            const recipe = await prisma.serviceRecipeItem.findMany({
+                where: { serviceId: currentItem.serviceId },
+                include: { product: true },
+            });
+
+            // Necesitamos branchId: lo obtenemos del plan de tratamiento
+            let branchId = null;
+            if (currentItem.treatmentPlanId) {
+                const plan = await prisma.treatmentPlan.findUnique({
+                    where: { id: currentItem.treatmentPlanId },
+                    select: { branchId: true },
+                });
+                branchId = plan?.branchId;
+            }
+
+            if (recipe.length > 0 && branchId) {
+                for (const ingredient of recipe) {
+                    const totalQty = ingredient.quantity * qty;
+
+                    // Descontar del stock de la sede
+                    const stock = await prisma.inventoryStock.upsert({
+                        where: { productId_branchId: { productId: ingredient.productId, branchId } },
+                        update: { quantity: { decrement: totalQty } },
+                        create: { productId: ingredient.productId, branchId, quantity: -totalQty },
+                    });
+
+                    // Registrar movimiento
+                    await prisma.inventoryMovement.create({
+                        data: {
+                            productId: ingredient.productId,
+                            branchId,
+                            type: 'SALIDA',
+                            quantity: totalQty,
+                            reason: `Uso en tratamiento: ${item.service?.name || 'Servicio'}`,
+                            treatmentItemId: id,
+                            createdBy: req.user?.id || 0,
+                        },
+                    });
+
+                    // Verificar stock mínimo
+                    const newQty = stock.quantity;
+                    if (ingredient.product.minStock > 0 && newQty <= ingredient.product.minStock) {
+                        stockAlerts.push({
+                            product: ingredient.product.name,
+                            unit: ingredient.product.unit,
+                            currentStock: newQty,
+                            minStock: ingredient.product.minStock,
+                        });
+                    }
+                }
+            }
+        }
+
+        res.json({ ...item, stockAlerts });
     } catch (error) {
         res.status(500).json({ message: 'Error al actualizar ítem', detail: error.message });
     }

@@ -3,7 +3,21 @@ const cors = require('cors');
 const app = express();
 
 // Middlewares
-app.use(cors());
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow all origins in development or if it's a localhost origin
+    if (!origin || origin.indexOf('localhost') !== -1 || origin.indexOf('127.0.0.1') !== -1) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Still allow all for now while debugging
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Request logger for debugging

@@ -35,6 +35,7 @@ model Company {
   cashCloses           CashClose[]
   treatmentPlans       TreatmentPlan[]
   invoiceSeries        InvoiceSerie[]
+  inventoryProducts    InventoryProduct[]
 }
 
 model Branch {
@@ -64,6 +65,7 @@ model Branch {
   seriesNCBoleta  String?
   seriesNCFactura String?
   invoiceSeries   InvoiceSerie[]
+  inventoryStocks InventoryStock[]
 }
 
 model User {
@@ -185,6 +187,7 @@ model Service {
   company        Company         @relation(fields: [companyId], references: [id])
   treatmentItems TreatmentItem[]
   invoiceDetails InvoiceDetail[]
+  recipeItems    ServiceRecipeItem[]
 }
 
 model TreatmentPlan {
@@ -548,4 +551,60 @@ model InvoiceSerie {
   company     Company  @relation(fields: [companyId], references: [id])
 
   @@unique([branchId, type])
+}
+
+// ── Inventario: Productos / Insumos ──────────────────────────────────────────
+model InventoryProduct {
+  id          Int      @id @default(autoincrement())
+  name        String
+  unit        String   // "ml", "gramos", "unidad", "caja", "pares"
+  category    String   // "Material Dental", "Insumo", "Medicamento"
+  minStock    Float    @default(0)
+  active      Boolean  @default(true)
+  companyId   Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  company     Company          @relation(fields: [companyId], references: [id])
+  stocks      InventoryStock[]
+  recipeItems ServiceRecipeItem[]
+  movements   InventoryMovement[]
+}
+
+// ── Stock por sede ─────────────────────────────────────────────────────────
+model InventoryStock {
+  id        Int      @id @default(autoincrement())
+  productId Int
+  branchId  Int
+  quantity  Float    @default(0)
+  updatedAt DateTime @updatedAt
+  product   InventoryProduct @relation(fields: [productId], references: [id])
+  branch    Branch           @relation(fields: [branchId], references: [id])
+
+  @@unique([productId, branchId])
+}
+
+// ── Receta por servicio ────────────────────────────────────────────────────
+model ServiceRecipeItem {
+  id        Int    @id @default(autoincrement())
+  serviceId Int
+  productId Int
+  quantity  Float  // cantidad a descontar por 1 uso del servicio
+  service   Service          @relation(fields: [serviceId], references: [id])
+  product   InventoryProduct @relation(fields: [productId], references: [id])
+
+  @@unique([serviceId, productId])
+}
+
+// ── Historial de movimientos de stock ─────────────────────────────────────
+model InventoryMovement {
+  id              Int      @id @default(autoincrement())
+  productId       Int
+  branchId        Int
+  type            String   // "ENTRADA" | "SALIDA" | "AJUSTE"
+  quantity        Float
+  reason          String?  // "Compra", "Uso en tratamiento", "Ajuste manual"
+  treatmentItemId Int?     // referencia al tratamiento que causó la salida
+  createdBy       Int
+  createdAt       DateTime @default(now())
+  product         InventoryProduct @relation(fields: [productId], references: [id])
 }

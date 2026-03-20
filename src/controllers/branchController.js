@@ -3,9 +3,14 @@ const prisma = require('../utils/prisma');
 const getBranches = async (req, res) => {
     try {
         const companyId = parseInt(req.user.companyId);
+        
+        console.log(`[BranchController] Fetching branches for companyId: ${companyId}`);
+        
         const branches = await prisma.branch.findMany({
             where: { companyId }
         });
+        
+        console.log(`[BranchController] Found ${branches.length} branches`);
         res.json(branches);
     } catch (error) {
         console.error('Error fetching branches:', error);

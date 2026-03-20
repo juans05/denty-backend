@@ -1,5 +1,5 @@
 const prisma = require('../utils/prisma');
-const { amountToWords, buildInvoicePayload, sendToApisunat } = require('../services/apisunatService');
+const { amountToWords, buildInvoicePayload, sendToApisunat, sendVoidToApisunat } = require('../services/apisunatService');
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Helper: convierte un item del frontend → fila de InvoiceDetail
@@ -262,14 +262,16 @@ const createInvoice = async (req, res) => {
                     }))
                 });
                 const apiRes = await sendToApisunat(payload);
+                const apisunatStatus = apiRes.ok ? 'SENT' : 'ERROR';
+
                 await prisma.invoice.update({
                     where: { id: result.id },
-                    data: { apisunatStatus: 'SENT', apisunatResponse: apiRes }
+                    data: { apisunatStatus, apisunatResponse: apiRes }
                 });
-                result.apisunatStatus = 'SENT';
+                result.apisunatStatus = apisunatStatus;
                 result.apisunatResponse = apiRes;
             } catch (apiErr) {
-                console.error('APISUNAT error:', apiErr.message);
+                console.error('APISUNAT Exception:', apiErr.message);
                 await prisma.invoice.update({
                     where: { id: result.id },
                     data: { apisunatStatus: 'ERROR', apisunatResponse: { error: apiErr.message } }
@@ -297,9 +299,15 @@ const createInvoice = async (req, res) => {
 // ──────────────────────────────────────────────────────────────────────────────
 const getInvoices = async (req, res) => {
     try {
-        const { companyId } = req.user;
+        const { companyId, branchId, role } = req.user;
+        
+        const where = { companyId: parseInt(companyId) };
+        if (role !== 'ADMIN' && branchId) {
+            where.branchId = parseInt(branchId);
+        }
+
         const invoices = await prisma.invoice.findMany({
-            where: { companyId: parseInt(companyId) },
+            where,
             orderBy: { createdAt: 'desc' },
             include: {
                 treatmentPlan: true,
@@ -319,10 +327,16 @@ const getInvoices = async (req, res) => {
 // ──────────────────────────────────────────────────────────────────────────────
 const getInvoiceById = async (req, res) => {
     try {
-        const { companyId } = req.user;
+        const { companyId, branchId, role } = req.user;
         const { id } = req.params;
+
+        const where = { id: parseInt(id), companyId: parseInt(companyId) };
+        if (role !== 'ADMIN' && branchId) {
+            where.branchId = parseInt(branchId);
+        }
+
         const invoice = await prisma.invoice.findFirst({
-            where: { id: parseInt(id), companyId: parseInt(companyId) },
+            where,
             include: { details: true, payments: true, treatmentPlan: true }
         });
         if (!invoice) return res.status(404).json({ message: 'Comprobante no encontrado' });
@@ -483,6 +497,7 @@ const voidInvoice = async (req, res) => {
     try {
         const { id } = req.params;
         const { companyId } = req.user;
+        const { reason } = req.body;
         const userId = req.user.id;
 
         const invoice = await prisma.invoice.findFirst({
@@ -507,6 +522,40 @@ const voidInvoice = async (req, res) => {
             where: { invoiceId: parseInt(id) },
             data: { status: 'COMPLETED', invoiceId: null }
         });
+
+        // ── Enviar ANULACIÓN a APISUNAT ──
+        const company = await prisma.company.findUnique({ where: { id: parseInt(companyId) } });
+        if (company?.apisunatPersonaId && company?.apisunatPersonaToken) {
+            try {
+                // APISUNAT voidBill requiere personaId, personaToken, documentId y reason
+                const payload = {
+                    personaId: company.apisunatPersonaId,
+                    personaToken: company.apisunatPersonaToken,
+                    documentId: invoice.apisunatResponse?.documentId,
+                    reason: reason || 'Anulación por error en emisión'
+                };
+                if (!payload.documentId) {
+                    console.error('No se puede anular: falta apisunat documentId');
+                } else {
+                    const voidRes = await sendVoidToApisunat(payload);
+                    await prisma.invoice.update({
+                        where: { id: parseInt(id) },
+                        data: { 
+                            apisunatStatus: voidRes.ok ? 'VOIDED' : 'ERROR', 
+                            apisunatResponse: { ...invoice.apisunatResponse, voidResult: voidRes }
+                        }
+                    });
+                    updated.apisunatStatus = voidRes.ok ? 'VOIDED' : 'ERROR';
+                    updated.voidResult = voidRes;
+                }
+            } catch (err) {
+                console.error('APISUNAT Void Exception:', err.message);
+                await prisma.invoice.update({
+                    where: { id: parseInt(id) },
+                    data: { apisunatStatus: 'ERROR', apisunatResponse: { error: err.message } }
+                });
+            }
+        }
 
         res.json(updated);
     } catch (error) {
@@ -593,6 +642,49 @@ const createCreditNote = async (req, res) => {
                     serviceId: d.serviceId
                 }))
             });
+        }
+
+        // ── Enviar NOTA DE CRÉDITO a APISUNAT ──
+        const company = await prisma.company.findUnique({ where: { id: parseInt(companyId) } });
+        if (company?.apisunatPersonaId && company?.apisunatPersonaToken) {
+            try {
+                const details = await prisma.invoiceDetail.findMany({
+                    where: { invoiceId: nc.id },
+                    include: { service: true }
+                });
+                const payload = buildInvoicePayload({
+                    company,
+                    invoice: nc,
+                    customer: {
+                        customerName: nc.razonSocial,
+                        documentType: nc.tipoDocumento,
+                        documentId: nc.nroDocumento,
+                        address: nc.direccionCliente
+                    },
+                    items: details.map(d => ({
+                        ...d,
+                        price: d.precioConIgv / d.cantidad,
+                        quantity: d.cantidad,
+                        discount: d.descuento || 0
+                    })),
+                    originalDoc: original // Importante para NC
+                });
+                const apiRes = await sendToApisunat(payload);
+                const apisunatStatus = apiRes.ok ? 'SENT' : 'ERROR';
+
+                await prisma.invoice.update({
+                    where: { id: nc.id },
+                    data: { apisunatStatus, apisunatResponse: apiRes }
+                });
+                nc.apisunatStatus = apisunatStatus;
+                nc.apisunatResponse = apiRes;
+            } catch (err) {
+                console.error('APISUNAT NC Exception:', err.message);
+                await prisma.invoice.update({
+                    where: { id: nc.id },
+                    data: { apisunatStatus: 'ERROR', apisunatResponse: { error: err.message } }
+                });
+            }
         }
 
         res.status(201).json(nc);

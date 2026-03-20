@@ -110,7 +110,7 @@ const getAppointments = async (req, res) => {
 const createAppointment = async (req, res) => {
     try {
         const { branchId: userBranchId } = req.user;
-        const { date, notes, patientId, doctorId, reason, urgency, duration, branchId: bodyBranchId } = req.body;
+        const { date, notes, patientId, doctorId, reason, urgency, duration, branchId: bodyBranchId, consultoryId } = req.body;
 
         // Use branchId from body (quick-book modal) first, fall back to user's default branch
         const branchId = bodyBranchId || userBranchId;
@@ -194,6 +194,7 @@ const createAppointment = async (req, res) => {
                 patientId: parseInt(patientId),
                 doctorId: parseInt(doctorId),
                 branchId: parseInt(branchId),
+                consultoryId: consultoryId ? parseInt(consultoryId) : null,
                 status: 'SCHEDULED'
             },
             include: {
@@ -236,7 +237,7 @@ const createAppointment = async (req, res) => {
 const updateAppointment = async (req, res) => {
     try {
         const { id } = req.params;
-        const { date, notes, status, doctorId, reason, urgency, duration } = req.body;
+        const { date, notes, status, doctorId, reason, urgency, duration, consultoryId } = req.body;
 
         const appointmentId = parseInt(id);
         const existingApp = await prisma.appointment.findUnique({ where: { id: appointmentId } });
@@ -284,6 +285,7 @@ const updateAppointment = async (req, res) => {
                 ...(reason !== undefined && { reason }),
                 ...(urgency && { urgency }),
                 ...(duration && { duration: newDuration }),
+                ...(consultoryId !== undefined && { consultoryId: consultoryId ? parseInt(consultoryId) : null }),
                 updatedAt: new Date()
             },
             include: {
