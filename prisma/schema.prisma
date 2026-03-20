@@ -238,7 +238,7 @@ model TreatmentItem {
 model Invoice {
   id               Int             @id @default(autoincrement())
   // ── Identificación ──────────────────────────────────────────────────────
-  number           String          @unique  // ej: F001-00000001
+  number           String  // ej: F001-00000001
   serie            String?                  // F001, B001
   correlativo      Int?
   type             String          @default("BOLETA")   // BOLETA, FACTURA
@@ -286,6 +286,8 @@ model Invoice {
   payments         Payment[]
   details          InvoiceDetail[]
   items            TreatmentItem[] @relation("InvoiceItems")
+
+  @@unique([companyId, number])
 }
 
 model InvoiceDetail {
