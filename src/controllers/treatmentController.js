@@ -27,9 +27,18 @@ const getTreatmentPlans = async (req, res) => {
                 },
                 payments: true,
                 branch: true,
+                invoices: {
+                    include: {
+                        items: { include: { service: true } },
+                        company: true,
+                        branch: true
+                    },
+                    orderBy: { createdAt: 'desc' }
+                }
             },
             orderBy: { createdAt: 'desc' },
         });
+        console.log(`Sending ${plans.length} plans. Plan 7 invoices:`, plans.find(p => p.id === 7)?.invoices?.length);
         res.json(plans);
     } catch (error) {
         console.error('Error getTreatmentPlans:', error);
@@ -52,9 +61,18 @@ const getTreatmentPlanById = async (req, res) => {
                 },
                 payments: true,
                 branch: true,
+                invoices: {
+                    include: {
+                        items: { include: { service: true } },
+                        company: true,
+                        branch: true
+                    },
+                    orderBy: { createdAt: 'desc' }
+                }
             },
         });
         if (!plan) return res.status(404).json({ message: 'Plan de tratamiento no encontrado' });
+        console.log(`[DEBUG] getTreatmentPlanById(${id}): Found ${plan.invoices?.length || 0} invoices.`);
         res.json(plan);
     } catch (error) {
         res.status(500).json({ message: 'Error al obtener plan', detail: error.message });

@@ -286,7 +286,22 @@ const createInvoice = async (req, res) => {
             result.apisunatStatus = 'SKIPPED';
         }
 
-        res.status(201).json(result);
+        // ── Retornar respuesta con datos de empresa/sede ───────────────────
+        res.status(201).json({
+            ...result,
+            company: {
+                name: company.name,
+                commercialName: company.commercialName,
+                taxId: company.taxId,
+                address: company.address,
+                phone: company.phone
+            },
+            branch: {
+                name: branch.name,
+                address: branch.address,
+                phone: branch.phone
+            }
+        });
 
     } catch (error) {
         console.error('Error creating invoice:', error);
