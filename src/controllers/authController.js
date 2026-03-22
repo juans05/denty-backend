@@ -20,54 +20,46 @@ const registerCompany = async (req, res) => {
 
         const hashedPassword = await bcrypt.hash(password, 12);
 
+        // ── Leer permisos FUERA de la transacción para evitar timeout P2028 ──
+        const allPermissions = await prisma.permission.findMany();
+
         const { user } = await prisma.$transaction(async (tx) => {
+            console.log('[RegisterCompany] Creating company:', companyName);
             const company = await tx.company.create({
                 data: { name: companyName, taxId }
             });
 
-            // ── Crear perfiles por defecto para la nueva empresa ──
-            const allPermissions = await tx.permission.findMany();
-
-            // 1. Administrador (todo)
-            const adminProfile = await tx.profile.create({
-                data: {
-                    name: 'ADMINISTRADOR',
-                    description: 'Acceso total al sistema',
-                    companyId: company.id,
-                    permissions: {
-                        create: allPermissions.map(p => ({ permission: { connect: { id: p.id } } }))
-                    }
-                }
+            console.log('[RegisterCompany] Creating profiles for company:', company.id);
+            // ── Crear los 3 perfiles secuencialmente para mayor estabilidad ──
+            const adminProfile = await tx.profile.create({ 
+                data: { name: 'ADMINISTRADOR', description: 'Acceso total al sistema', companyId: company.id } 
+            });
+            const dentistProfile = await tx.profile.create({ 
+                data: { name: 'ODONTÓLOGO', description: 'Gestión clínica y agenda', companyId: company.id } 
+            });
+            const receptionProfile = await tx.profile.create({ 
+                data: { name: 'RECEPCIÓN', description: 'Agenda y Pacientes básico', companyId: company.id } 
             });
 
-            // 2. Odontólogo (clínica + agenda)
-            await tx.profile.create({
-                data: {
-                    name: 'ODONTÓLOGO',
-                    description: 'Gestión clínica y agenda',
-                    companyId: company.id,
-                    permissions: {
-                        create: allPermissions
-                            .filter(p => !p.key.includes('finance:admin') && !p.key.includes('settings:admin'))
-                            .map(p => ({ permission: { connect: { id: p.id } } }))
-                    }
-                }
-            });
+            // ── Asignar permisos con un único INSERT en batch ──
+            if (allPermissions.length > 0) {
+                console.log('[RegisterCompany] Assigning permissions to profiles...');
+                const dentistPerms  = allPermissions.filter(p => !p.key.includes('finance:admin') && !p.key.includes('settings:admin'));
+                const receptionPerms = allPermissions.filter(p => p.key.startsWith('patients') || p.key.startsWith('agenda') || p.key === 'dash:view');
 
-            // 3. Recepción (agenda + pacientes)
-            await tx.profile.create({
-                data: {
-                    name: 'RECEPCIÓN',
-                    description: 'Agenda y Pacientes básico',
-                    companyId: company.id,
-                    permissions: {
-                        create: allPermissions
-                            .filter(p => p.key.startsWith('patients') || p.key.startsWith('agenda') || p.key === 'dash:view')
-                            .map(p => ({ permission: { connect: { id: p.id } } }))
-                    }
-                }
-            });
+                const profilePermData = [
+                    ...allPermissions.map(p => ({ profileId: adminProfile.id,    permissionId: p.id })),
+                    ...dentistPerms.map(p =>   ({ profileId: dentistProfile.id,  permissionId: p.id })),
+                    ...receptionPerms.map(p => ({ profileId: receptionProfile.id, permissionId: p.id })),
+                ];
 
+                await tx.profilePermission.createMany({
+                    data: profilePermData,
+                    skipDuplicates: true,
+                });
+            }
+
+            console.log('[RegisterCompany] Creating admin user...');
             const user = await tx.user.create({
                 data: {
                     email,
@@ -79,7 +71,7 @@ const registerCompany = async (req, res) => {
                 }
             });
             return { user };
-        });
+        }, { timeout: 30000 }); // Aumentar timeout por si el batch insert es lento
 
         const token = jwt.sign(
             { userId: user.id, role: user.role, email: user.email, companyId: user.companyId, branchId: null },
