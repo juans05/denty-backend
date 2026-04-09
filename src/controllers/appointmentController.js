@@ -635,4 +635,57 @@ const getAvailableDays = async (req, res) => {
     }
 };
 
-module.exports = { getAppointments, createAppointment, updateAppointment, deleteAppointment, attendAppointment, getDoctorsByBranch, getAvailableSlots, getAvailableDays };
+// PUT /api/appointments/:id/respond
+// Allows patient to CONFIRM or DECLINE an appointment
+const respondToAppointment = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body; // 'CONFIRMED' or 'CANCELLED'
+        const patientId = req.user.patientId;
+
+        if (!['CONFIRMED', 'CANCELLED'].includes(status)) {
+            return res.status(400).json({ message: 'Estado no válido. Use CONFIRMED o CANCELLED.' });
+        }
+
+        const appointment = await prisma.appointment.findUnique({
+            where: { id: parseInt(id) },
+            include: { 
+                patient: true,
+                doctor: { select: { id: true, name: true, email: true } },
+                branch: { select: { name: true } }
+            }
+        });
+
+        if (!appointment || appointment.patientId !== patientId) {
+            return res.status(404).json({ message: 'Cita no encontrada o no pertenece al paciente' });
+        }
+
+        const updated = await prisma.appointment.update({
+            where: { id: appointment.id },
+            data: { status, updatedAt: new Date() }
+        });
+
+        // Enviar notificación al médico sobre la respuesta del paciente
+        if (status === 'CONFIRMED') {
+            // Lógica de notificación personalizada aquí si se desea
+            console.log(`Paciente ${appointment.patient.firstName} confirmó cita para el ${appointment.date}`);
+        }
+
+        res.json(updated);
+    } catch (error) {
+        console.error('Error in respondToAppointment:', error);
+        res.status(500).json({ message: 'Error al procesar respuesta de cita' });
+    }
+};
+
+module.exports = { 
+    getAppointments, 
+    createAppointment, 
+    updateAppointment, 
+    deleteAppointment, 
+    attendAppointment, 
+    getDoctorsByBranch, 
+    getAvailableSlots, 
+    getAvailableDays,
+    respondToAppointment
+};

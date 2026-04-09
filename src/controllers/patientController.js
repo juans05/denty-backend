@@ -118,6 +118,12 @@ const createPatient = async (req, res) => {
         } = req.body;
 
         const lastName = `${paternalSurname || ''} ${maternalSurname || ''}`.trim();
+        
+        // Generación automática de HC si no viene en el request (Norma Peruana)
+        let finalHcNumber = hcNumber;
+        if (!finalHcNumber) {
+            finalHcNumber = documentId ? `HC-${documentId}` : `HC-${Date.now()}`;
+        }
 
         const patient = await prisma.patient.create({
             data: {
@@ -133,7 +139,7 @@ const createPatient = async (req, res) => {
                 birthCountry: birthCountry || 'Perú',
                 gender,
                 civilStatus,
-                hcNumber,
+                hcNumber: finalHcNumber,
                 occupation,
                 lineOfBusiness,
                 additionalInfo,
@@ -145,8 +151,8 @@ const createPatient = async (req, res) => {
                 phoneHome,
                 phone,
                 email,
-                webUser,
-                webPassword,
+                webUser: webUser || documentId,
+                webPassword: webPassword || documentId,
                 whatsappEnabled: whatsappEnabled === undefined ? true : whatsappEnabled,
                 ubigeoAddress,
                 ubigeoCode,

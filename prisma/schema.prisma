@@ -36,6 +36,7 @@ model Company {
   treatmentPlans       TreatmentPlan[]
   invoiceSeries        InvoiceSerie[]
   inventoryProducts    InventoryProduct[]
+  prescriptions        Prescription[]
 }
 
 model Branch {
@@ -66,6 +67,7 @@ model Branch {
   seriesNCFactura String?
   invoiceSeries   InvoiceSerie[]
   inventoryStocks InventoryStock[]
+  prescriptions   Prescription[]
 }
 
 model User {
@@ -96,6 +98,7 @@ model User {
   invoices            Invoice[]        @relation("InvoiceCreator")
   voidedInvoices      Invoice[]        @relation("InvoiceVoider")
   payments            Payment[]        @relation("PaymentCreator")
+  prescriptions       Prescription[]
 }
 
 model Patient {
@@ -150,6 +153,7 @@ model Patient {
   treatmentPlans     TreatmentPlan[]
   consents           PatientConsent[]
   patientFiles       PatientFile[]
+  prescriptions      Prescription[]
 }
 
 model Appointment {
@@ -609,4 +613,33 @@ model InventoryMovement {
   createdBy       Int
   createdAt       DateTime @default(now())
   product         InventoryProduct @relation(fields: [productId], references: [id])
+}
+
+// ── Recetas Médicas / Prescripciones (Portal del Paciente) ──────────────────
+model Prescription {
+  id          Int                @id @default(autoincrement())
+  patientId   Int
+  doctorId    Int
+  companyId   Int
+  branchId    Int?
+  notes       String?            // Indicaciones generales
+  date        DateTime           @default(now())
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  patient     Patient            @relation(fields: [patientId], references: [id])
+  doctor      User               @relation(fields: [doctorId], references: [id])
+  company     Company            @relation(fields: [companyId], references: [id])
+  branch      Branch?            @relation(fields: [branchId], references: [id])
+  items       PrescriptionItem[]
+}
+
+model PrescriptionItem {
+  id             Int          @id @default(autoincrement())
+  prescriptionId Int
+  medicineName   String       // Nombre del medicamento
+  dosage         String       // Dosis (ej: 500mg)
+  frequency      String       // Frecuencia (ej: cada 8 horas)
+  duration       String?      // Duración (ej: por 5 días)
+  instructions   String?      // Instrucciones adicionales
+  prescription   Prescription @relation(fields: [prescriptionId], references: [id])
 }

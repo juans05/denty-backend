@@ -19,7 +19,12 @@ const scheduleRoutes = require('./scheduleRoutes');
 const inventoryRoutes = require('./inventoryRoutes');
 const profileRoutes = require('./profileRoutes');
 
+const patientPortalRoutes = require('./patientPortalRoutes');
+const prescriptionRoutes = require('./prescriptionRoutes');
+
 router.use('/auth', authRoutes);
+router.use('/portal', patientPortalRoutes);
+router.use('/prescriptions', prescriptionRoutes);
 router.use('/patients', patientRoutes);
 router.use('/appointments', appointmentRoutes);
 router.use('/branches', branchRoutes);

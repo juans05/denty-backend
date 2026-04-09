@@ -219,6 +219,51 @@ const login = async (req, res) => {
                 permissions: permissions
             },
         });
+const patientLogin = async (req, res) => {
+    try {
+        const { documentId, password } = req.body;
+
+        if (!documentId || !password) {
+            return res.status(400).json({ message: 'Documento y contraseña requeridos' });
+        }
+
+        const patient = await prisma.patient.findUnique({
+            where: { documentId },
+            include: { company: true }
+        });
+
+        if (!patient || !patient.active) {
+            return res.status(401).json({ message: 'Paciente no encontrado o inactivo' });
+        }
+
+        // En este sistema, la webPassword se guarda en texto plano para facilidad de recuperación manual
+        // o se puede hashear si se desea mayor seguridad. 
+        // Por ahora comparamos directamente según el diseño actual.
+        if (patient.webPassword !== password) {
+            return res.status(401).json({ message: 'Contraseña incorrecta' });
+        }
+
+        const token = jwt.sign(
+            {
+                patientId: patient.id,
+                role: 'PATIENT',
+                documentId: patient.documentId,
+                companyId: patient.companyId
+            },
+            process.env.JWT_SECRET,
+            { expiresIn: '30d' } // Sesión más larga para pacientes
+        );
+
+        res.json({
+            token,
+            patient: {
+                id: patient.id,
+                name: `${patient.firstName} ${patient.paternalSurname}`,
+                documentId: patient.documentId,
+                companyId: patient.companyId,
+                role: 'PATIENT'
+            },
+        });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Error en el servidor' });
@@ -318,6 +363,7 @@ module.exports = {
     registerCompany,
     register,
     login,
+    patientLogin,
     getUsers,
     updateUser,
     deleteUser
