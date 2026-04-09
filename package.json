@@ -4,9 +4,11 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "npx prisma migrate deploy && node src/server.js",
+    "start": "npx prisma migrate resolve --applied 20260227000000_add_invoice_customer_fields || true && npx prisma migrate resolve --applied 20260227000001_add_serie_correlativo_apisunat || true && npx prisma migrate resolve --applied 20260227000002_add_invoice_detail_table || true && npx prisma migrate resolve --applied 20260227000003_rename_invoice_fields_spanish || true && npx prisma migrate resolve --applied 20260301000003_add_invoice_serie || true && npx prisma migrate resolve --applied 20260408000000_fix_invoice_baseline || true && npx prisma migrate deploy && node src/server.js",
     "start:local": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "fix-db": "npx prisma migrate resolve --rolled-back 20260227000000_add_invoice_customer_fields && npx prisma migrate deploy",
+    "db:repair": "npx prisma migrate resolve --applied 20260408000000_fix_invoice_baseline",
     "build": "npx prisma generate",
     "postinstall": "npx prisma generate",
     "test": "echo \"Error: no test specified\" && exit 1"
