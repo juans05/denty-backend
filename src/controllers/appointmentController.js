@@ -41,16 +41,23 @@ async function checkSchedule(doctorId, branchId, appointmentDate, duration) {
 
 // Verifica si el slot está dentro de un bloqueo
 async function checkBlockedSlot(doctorId, branchId, startAt, endAt) {
+    console.log(`[checkBlockedSlot] Checking branch ${branchId}, doctor ${doctorId}, interval: ${startAt.toISOString()} - ${endAt.toISOString()}`);
+    
     const blocked = await prisma.blockedSlot.findFirst({
         where: {
-            branchId,
-            startAt: { lte: endAt },
-            endAt:   { gte: startAt },
-            OR: [{ doctorId: null }, { doctorId }]
+            branchId: parseInt(branchId),
+            startAt: { lt: endAt },
+            endAt:   { gt: startAt },
+            OR: [
+                { doctorId: null }, 
+                { doctorId: parseInt(doctorId) }
+            ]
         }
     });
+
     if (blocked) {
-        return { ok: false, msg: blocked.reason ? `Horario bloqueado: ${blocked.reason}` : 'Horario bloqueado' };
+        console.warn(`[checkBlockedSlot] BLOCKED found ID: ${blocked.id}, reason: ${blocked.reason}`);
+        return { ok: false, msg: blocked.reason ? `Horario bloqueado: ${blocked.reason}` : 'Horario bloqueado por configuración de sede.' };
     }
     return { ok: true };
 }
@@ -176,9 +183,8 @@ const createAppointment = async (req, res) => {
         }
 
         // ── Validar bloqueos ────────────────────────────────────────────────
-        const endTime2 = new Date(appointmentDate.getTime() + appDuration * 60000);
         const blockedCheck = await checkBlockedSlot(
-            parseInt(doctorId), parseInt(branchId), appointmentDate, endTime2
+            parseInt(doctorId), parseInt(branchId), appointmentDate, endTime
         );
         if (!blockedCheck.ok) {
             return res.status(409).json({ message: blockedCheck.msg });
@@ -198,8 +204,8 @@ const createAppointment = async (req, res) => {
                 status: 'SCHEDULED'
             },
             include: {
-                patient: { select: { id: true, firstName: true, paternalSurname: true, email: true } },
-                doctor:  { select: { id: true, name: true, email: true } },
+                patient: { select: { id: true, firstName: true, paternalSurname: true, email: true, fcmToken: true } },
+                doctor:  { select: { id: true, name: true, email: true, fcmToken: true } },
                 branch:  { select: { name: true } }
             }
         });
@@ -267,12 +273,27 @@ const updateAppointment = async (req, res) => {
 
         const isOverlapping = allPotentialOverlaps.some(app => {
             const startB = new Date(app.date);
-            const endB = new Date(startB.getTime() + (app.duration || 30) * 60000);
             return (newDate < endB) && (newEndTime > startB);
         });
 
         if (isOverlapping) {
             return res.status(409).json({ message: 'El doctor ya tiene una cita programada en este horario.' });
+        }
+
+        // ── Validar horario del médico ──────────────────────────────────────
+        const scheduleCheck = await checkSchedule(
+            newDoctorId, existingApp.branchId, newDate, newDuration
+        );
+        if (!scheduleCheck.ok) {
+            return res.status(409).json({ message: scheduleCheck.msg });
+        }
+
+        // ── Validar bloqueos ────────────────────────────────────────────────
+        const blockedCheck = await checkBlockedSlot(
+            newDoctorId, existingApp.branchId, newDate, newEndTime
+        );
+        if (!blockedCheck.ok) {
+            return res.status(409).json({ message: blockedCheck.msg });
         }
 
         const appointment = await prisma.appointment.update({
@@ -289,7 +310,7 @@ const updateAppointment = async (req, res) => {
                 updatedAt: new Date()
             },
             include: {
-                patient: { select: { id: true, firstName: true, paternalSurname: true, email: true } }
+                patient: { select: { id: true, firstName: true, paternalSurname: true, email: true, fcmToken: true } }
             }
         });
 

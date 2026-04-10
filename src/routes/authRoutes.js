@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
-
 const authMiddleware = require('../middlewares/authMiddleware');
 
 router.post('/login', authController.login);
@@ -11,5 +10,6 @@ router.post('/register', authMiddleware, authController.register); // Protected:
 router.get('/users', authMiddleware, authController.getUsers);
 router.put('/users/:id', authMiddleware, authController.updateUser);
 router.delete('/users/:id', authMiddleware, authController.deleteUser);
+router.put('/fcm-token', authMiddleware, authController.updateFcmToken);
 
 module.exports = router;

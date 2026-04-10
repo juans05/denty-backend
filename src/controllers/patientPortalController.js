@@ -79,9 +79,30 @@ const getMyDocuments = async (req, res) => {
     }
 };
 
+const updateFcmToken = async (req, res) => {
+    try {
+        const { patientId } = req.user;
+        const { fcmToken } = req.body;
+
+        if (!patientId) return res.status(403).json({ message: 'No es un perfil de paciente' });
+        if (!fcmToken) return res.status(400).json({ message: 'Token FCM requerido' });
+
+        await prisma.patient.update({
+            where: { id: patientId },
+            data: { fcmToken }
+        });
+
+        res.json({ message: 'Token FCM de paciente actualizado correctamente' });
+    } catch (error) {
+        console.error('Error al actualizar fcmToken paciente:', error);
+        res.status(500).json({ message: 'Error interno del servidor' });
+    }
+};
+
 module.exports = {
     getProfile,
     getMyAppointments,
     getMyTreatments,
-    getMyDocuments
+    getMyDocuments,
+    updateFcmToken
 };

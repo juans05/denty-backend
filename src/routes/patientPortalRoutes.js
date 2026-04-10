@@ -9,5 +9,6 @@ router.get('/profile', patientPortalController.getProfile);
 router.get('/appointments', patientPortalController.getMyAppointments);
 router.get('/treatments', patientPortalController.getMyTreatments);
 router.get('/documents', patientPortalController.getMyDocuments);
+router.put('/fcm-token', patientPortalController.updateFcmToken);
 
 module.exports = router;

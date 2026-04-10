@@ -89,6 +89,7 @@ model User {
   company             Company          @relation(fields: [companyId], references: [id])
   profileId           Int?
   profile             Profile?         @relation(fields: [profileId], references: [id])
+  fcmToken            String?
   doctorSchedules     DoctorSchedule[] @relation("DoctorSchedules")
   blockedSlots        BlockedSlot[]    @relation("DoctorBlockedSlots")
   createdBlockedSlots BlockedSlot[]    @relation("BlockedSlotCreator")
@@ -154,6 +155,7 @@ model Patient {
   consents           PatientConsent[]
   patientFiles       PatientFile[]
   prescriptions      Prescription[]
+  fcmToken           String?
 }
 
 model Appointment {

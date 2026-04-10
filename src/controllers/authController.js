@@ -364,6 +364,27 @@ const deleteUser = async (req, res) => {
     }
 };
 
+const updateFcmToken = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { fcmToken } = req.body;
+
+        if (!fcmToken) {
+            return res.status(400).json({ message: 'Token FCM requerido' });
+        }
+
+        await prisma.user.update({
+            where: { id: userId },
+            data: { fcmToken }
+        });
+
+        res.json({ message: 'Token FCM actualizado correctamente' });
+    } catch (error) {
+        console.error('Error al actualizar fcmToken:', error);
+        res.status(500).json({ message: 'Error interno del servidor' });
+    }
+};
+
 module.exports = {
     registerCompany,
     register,
@@ -371,5 +392,6 @@ module.exports = {
     patientLogin,
     getUsers,
     updateUser,
-    deleteUser
+    deleteUser,
+    updateFcmToken
 };
