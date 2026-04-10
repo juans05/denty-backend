@@ -219,6 +219,11 @@ const login = async (req, res) => {
                 permissions: permissions
             },
         });
+    } catch (error) {
+        console.error('Error en login:', error);
+        res.status(500).json({ message: 'Error en el servidor', detail: error.message });
+    }
+};
 const patientLogin = async (req, res) => {
     try {
         const { documentId, password } = req.body;
