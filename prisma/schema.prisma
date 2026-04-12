@@ -68,6 +68,8 @@ model Branch {
   invoiceSeries   InvoiceSerie[]
   inventoryStocks InventoryStock[]
   prescriptions   Prescription[]
+  usersByBranch   UserBranch[]
+  patients        Patient[]
 }
 
 model User {
@@ -100,6 +102,7 @@ model User {
   voidedInvoices      Invoice[]        @relation("InvoiceVoider")
   payments            Payment[]        @relation("PaymentCreator")
   prescriptions       Prescription[]
+  branches            UserBranch[]
 }
 
 model Patient {
@@ -545,6 +548,15 @@ model ProfilePermission {
   permission   Permission @relation(fields: [permissionId], references: [id])
 
   @@id([profileId, permissionId])
+}
+
+model UserBranch {
+  userId   Int
+  branchId Int
+  user     User   @relation(fields: [userId], references: [id])
+  branch   Branch @relation(fields: [branchId], references: [id])
+
+  @@id([userId, branchId])
 }
 
 // ── Series de comprobantes por sede ──────────────────────────────────────────

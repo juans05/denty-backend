@@ -137,14 +137,32 @@ const register = async (req, res) => {
             name,
             role: role || 'DENTIST',
             companyId: parseInt(companyId),
-            branchId: (branchId && branchId !== "") ? parseInt(branchId) : null,
             profileId: finalProfileId
         };
 
-        console.log('[AuthController] Creating user with data:', createData);
+        const user = await prisma.$transaction(async (tx) => {
+            const newUser = await tx.user.create({
+                data: createData,
+            });
 
-        const user = await prisma.user.create({
-            data: createData,
+            // Handle multi-branch assignment
+            if (Array.isArray(req.body.branchIds) && req.body.branchIds.length > 0) {
+                await tx.userBranch.createMany({
+                    data: req.body.branchIds.map(bId => ({
+                        userId: newUser.id,
+                        branchId: parseInt(bId)
+                    }))
+                });
+            } else if (branchId) {
+                await tx.userBranch.create({
+                    data: {
+                        userId: newUser.id,
+                        branchId: parseInt(branchId)
+                    }
+                });
+            }
+
+            return newUser;
         });
 
         console.log('[AuthController] User created successfully:', user.id);
@@ -162,6 +180,11 @@ const login = async (req, res) => {
         const user = await prisma.user.findUnique({
             where: { email },
             include: {
+                branches: {
+                    include: {
+                        branch: true
+                    }
+                },
                 profile: {
                     include: {
                         permissions: {
@@ -205,6 +228,16 @@ const login = async (req, res) => {
 
         const permissions = user.profile?.permissions.map(pp => pp.permission.key) || [];
 
+        // Available branches for the user
+        let availableBranches = user.branches.map(ub => ub.branch) || [];
+
+        // If ADMIN, they have access to ALL branches of their company
+        if (user.role === 'ADMIN') {
+            availableBranches = await prisma.branch.findAll ? [] : await prisma.branch.findMany({ 
+                where: { companyId: user.companyId, active: true } 
+            });
+        }
+
         res.json({
             token,
             user: {
@@ -213,7 +246,8 @@ const login = async (req, res) => {
                 email: user.email,
                 role: user.role,
                 companyId: user.companyId,
-                branchId: user.branchId,
+                branchId: user.branchId, // Legacy or default
+                availableBranches, // New
                 needsSetup,
                 profile: user.profile?.name || null,
                 permissions: permissions
@@ -317,6 +351,16 @@ const getUsers = async (req, res) => {
                 email: true,
                 role: true,
                 branchId: true,
+                branches: {
+                    include: {
+                        branch: {
+                            select: {
+                                id: true,
+                                name: true
+                            }
+                        }
+                    }
+                },
                 profileId: true,
                 profile: {
                     select: {
@@ -354,12 +398,34 @@ const updateUser = async (req, res) => {
             updateData.password = await bcrypt.hash(req.body.password, 12);
         }
 
-        const user = await prisma.user.update({
-            where: {
-                id: parseInt(id),
-                companyId // Security check
-            },
-            data: updateData
+        const user = await prisma.$transaction(async (tx) => {
+            const updatedUser = await tx.user.update({
+                where: {
+                    id: parseInt(id),
+                    companyId // Security check
+                },
+                data: updateData
+            });
+
+            // Update multi-branch assignment if provided
+            if (Array.isArray(req.body.branchIds)) {
+                // Remove old assignments
+                await tx.userBranch.deleteMany({
+                    where: { userId: parseInt(id) }
+                });
+
+                // Add new ones
+                if (req.body.branchIds.length > 0) {
+                    await tx.userBranch.createMany({
+                        data: req.body.branchIds.map(bId => ({
+                            userId: parseInt(id),
+                            branchId: parseInt(bId)
+                        }))
+                    });
+                }
+            }
+
+            return updatedUser;
         });
 
         res.json(user);
