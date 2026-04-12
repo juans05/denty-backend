@@ -2,7 +2,7 @@ const jwt = require('jsonwebtoken');
 const prisma = require('../utils/prisma');
 
 module.exports = async (req, res, next) => {
-    console.log('[AuthMiddleware] v2.1 Processing request...');
+    console.log('[AuthMiddleware] v2.2 Processing request...');
     try {
         const authHeader = req.headers.authorization;
         if (!authHeader) {
@@ -16,7 +16,20 @@ module.exports = async (req, res, next) => {
 
         const decodedToken = jwt.verify(token, process.env.JWT_SECRET);
 
-        // Robust ID search
+        // ── CASO PACIENTE: el token usa patientId en lugar de userId ──────────
+        if (decodedToken.patientId && decodedToken.role === 'PATIENT') {
+            req.user = {
+                patientId: decodedToken.patientId,
+                role: 'PATIENT',
+                companyId: decodedToken.companyId,
+                branchId: decodedToken.branchId || null,
+                documentId: decodedToken.documentId,
+                permissions: []
+            };
+            return next();
+        }
+
+        // ── CASO USUARIO (admin, doctor, recepción) ──────────────────────────
         let rawUserId = decodedToken.userId || decodedToken.id || decodedToken.sub;
         let companyId = decodedToken.companyId;
         let branchId = decodedToken.branchId;

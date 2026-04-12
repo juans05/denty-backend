@@ -226,34 +226,57 @@ const login = async (req, res) => {
 };
 const patientLogin = async (req, res) => {
     try {
-        const { documentId, password } = req.body;
+        const { documentId, password, companyId: requestedCompanyId, branchId: requestedBranchId } = req.body;
 
         if (!documentId || !password) {
             return res.status(400).json({ message: 'Documento y contraseña requeridos' });
         }
 
-        const patient = await prisma.patient.findUnique({
-            where: { documentId },
-            include: { company: true }
+        const where = { documentId, active: true };
+        if (requestedCompanyId) {
+            where.companyId = parseInt(requestedCompanyId);
+        }
+        if (requestedBranchId) {
+            where.branchId = parseInt(requestedBranchId);
+        }
+
+        const patients = await prisma.patient.findMany({
+            where,
+            include: {
+                company: true,
+                branch: true,
+                appointments: { orderBy: { date: 'desc' }, take: 1 }
+            }
         });
 
-        if (!patient || !patient.active) {
+        if (!patients.length) {
             return res.status(401).json({ message: 'Paciente no encontrado o inactivo' });
         }
 
-        // En este sistema, la webPassword se guarda en texto plano para facilidad de recuperación manual
-        // o se puede hashear si se desea mayor seguridad. 
-        // Por ahora comparamos directamente según el diseño actual.
-        if (patient.webPassword !== password) {
+        const matchedPatients = patients.filter(p => p.webPassword === password);
+        if (!matchedPatients.length) {
             return res.status(401).json({ message: 'Contraseña incorrecta' });
         }
+
+        const patient = matchedPatients.sort((a, b) => {
+            const aHasBranch = a.branchId ? 1 : 0;
+            const bHasBranch = b.branchId ? 1 : 0;
+            if (aHasBranch !== bHasBranch) return bHasBranch - aHasBranch;
+
+            const aHasAppointment = (a.appointments?.length || 0) > 0 ? 1 : 0;
+            const bHasAppointment = (b.appointments?.length || 0) > 0 ? 1 : 0;
+            if (aHasAppointment !== bHasAppointment) return bHasAppointment - aHasAppointment;
+
+            return new Date(b.updatedAt) - new Date(a.updatedAt);
+        })[0];
 
         const token = jwt.sign(
             {
                 patientId: patient.id,
                 role: 'PATIENT',
                 documentId: patient.documentId,
-                companyId: patient.companyId
+                companyId: patient.companyId,
+                branchId: patient.branchId || null
             },
             process.env.JWT_SECRET,
             { expiresIn: '30d' } // Sesión más larga para pacientes
@@ -263,9 +286,11 @@ const patientLogin = async (req, res) => {
             token,
             patient: {
                 id: patient.id,
-                name: `${patient.firstName} ${patient.paternalSurname}`,
+                name: `${patient.firstName} ${patient.paternalSurname || ''}`.trim(),
                 documentId: patient.documentId,
                 companyId: patient.companyId,
+                branchId: patient.branchId || null,
+                branchName: patient.branch?.name || null,
                 role: 'PATIENT'
             },
         });

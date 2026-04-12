@@ -102,13 +102,25 @@ const updateFcmToken = async (req, res) => {
 const getAvailableDoctors = async (req, res) => {
     try {
         const { companyId } = req.user;
+        const { branchId } = req.query;
+
+        const where = { 
+            companyId: parseInt(companyId),
+            role: 'DENTIST',
+            active: true
+        };
+
+        // Si se pasa branchId, filtrar por esa sede (o doctores sin sede asignada = globales)
+        if (branchId) {
+            where.OR = [
+                { branchId: parseInt(branchId) },
+                { branchId: null } // Doctores que trabajan en todas las sedes
+            ];
+        }
+
         const doctors = await prisma.user.findMany({
-            where: { 
-                companyId: parseInt(companyId),
-                role: 'DENTIST',
-                active: true
-            },
-            select: { id: true, name: true, email: true, role: true }
+            where,
+            select: { id: true, name: true, email: true, role: true, branchId: true }
         });
         res.json(doctors);
     } catch (error) {
@@ -184,6 +196,60 @@ const getAvailability = async (req, res) => {
     }
 };
 
+// GET /portal/branches — Sedes disponibles para el paciente (filtradas por empresa)
+const getBranches = async (req, res) => {
+    try {
+        const { companyId } = req.user;
+        if (!companyId) return res.status(400).json({ message: 'companyId no disponible en el token' });
+
+        const branches = await prisma.branch.findMany({
+            where: { companyId: parseInt(companyId) },
+            select: { id: true, name: true, address: true, phone: true }
+        });
+        res.json(branches);
+    } catch (error) {
+        console.error('Error al obtener sedes del paciente:', error);
+        res.status(500).json({ message: 'Error al obtener sedes' });
+    }
+};
+
+const changePassword = async (req, res) => {
+    try {
+        const { patientId } = req.user;
+        if (!patientId) return res.status(403).json({ message: 'No es un perfil de paciente' });
+
+        const { currentPassword, newPassword } = req.body;
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({ message: 'Se requiere la contraseña actual y la nueva.' });
+        }
+        if (newPassword.length < 6) {
+            return res.status(400).json({ message: 'La nueva contraseña debe tener al menos 6 caracteres.' });
+        }
+
+        const bcrypt = require('bcryptjs');
+        const patient = await prisma.patient.findUnique({ where: { id: patientId } });
+        if (!patient || !patient.password) {
+            return res.status(404).json({ message: 'Paciente no encontrado.' });
+        }
+
+        const isMatch = await bcrypt.compare(currentPassword, patient.password);
+        if (!isMatch) {
+            return res.status(401).json({ message: 'La contraseña actual es incorrecta.' });
+        }
+
+        const hashed = await bcrypt.hash(newPassword, 12);
+        await prisma.patient.update({
+            where: { id: patientId },
+            data: { password: hashed, updatedAt: new Date() }
+        });
+
+        res.json({ message: 'Contraseña actualizada correctamente.' });
+    } catch (error) {
+        console.error('Error al cambiar contraseña:', error);
+        res.status(500).json({ message: 'Error interno del servidor' });
+    }
+};
+
 module.exports = {
     getProfile,
     getMyAppointments,
@@ -191,5 +257,7 @@ module.exports = {
     getMyDocuments,
     updateFcmToken,
     getAvailableDoctors,
-    getAvailability
+    getAvailability,
+    changePassword,
+    getBranches
 };
