@@ -92,6 +92,12 @@ module.exports = async (req, res, next) => {
             permissions: user.profile?.permissions.map(pp => pp.permission.key) || []
         };
 
+        // override con cabecera dinámica de sede
+        const headerBranchId = req.headers['x-branch-id'];
+        if (headerBranchId) {
+            req.user.branchId = parseInt(headerBranchId);
+        }
+
         next();
     } catch (error) {
         console.error('[AuthMiddleware] Error:', error);

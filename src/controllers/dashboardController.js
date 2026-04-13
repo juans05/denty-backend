@@ -5,8 +5,8 @@ const getStats = async (req, res) => {
         const { companyId, branchId, role } = req.user;
         const id = parseInt(companyId);
 
-        // Filter by branch if user is not admin and has a branchId
-        const branchFilter = (role !== 'ADMIN' && branchId) ? { branchId: parseInt(branchId) } : {};
+        // Filter by branch if provided (honored for both Admin and specific users)
+        const branchFilter = branchId ? { branchId: parseInt(branchId) } : {};
 
         // ── Rangos de fechas ────────────────────────────────────────────────
         const now = new Date();
