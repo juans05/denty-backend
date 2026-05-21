@@ -36,6 +36,7 @@ model Company {
   treatmentPlans       TreatmentPlan[]
   invoiceSeries        InvoiceSerie[]
   inventoryProducts    InventoryProduct[]
+  prescriptions        Prescription[]
 }
 
 model Branch {
@@ -66,6 +67,9 @@ model Branch {
   seriesNCFactura String?
   invoiceSeries   InvoiceSerie[]
   inventoryStocks InventoryStock[]
+  prescriptions   Prescription[]
+  usersByBranch   UserBranch[]
+  patients        Patient[]
 }
 
 model User {
@@ -87,6 +91,7 @@ model User {
   company             Company          @relation(fields: [companyId], references: [id])
   profileId           Int?
   profile             Profile?         @relation(fields: [profileId], references: [id])
+  fcmToken            String?
   doctorSchedules     DoctorSchedule[] @relation("DoctorSchedules")
   blockedSlots        BlockedSlot[]    @relation("DoctorBlockedSlots")
   createdBlockedSlots BlockedSlot[]    @relation("BlockedSlotCreator")
@@ -96,6 +101,8 @@ model User {
   invoices            Invoice[]        @relation("InvoiceCreator")
   voidedInvoices      Invoice[]        @relation("InvoiceVoider")
   payments            Payment[]        @relation("PaymentCreator")
+  prescriptions       Prescription[]
+  branches            UserBranch[]
 }
 
 model Patient {
@@ -105,7 +112,7 @@ model Patient {
   paternalSurname    String?
   maternalSurname    String?
   documentType       String          @default("DNI")
-  documentId         String?         @unique
+  documentId         String?
   nationality        String?         @default("Peruano")
   birthDate          DateTime
   gender             String          @default("SIN ESPECIFICAR")
@@ -124,6 +131,7 @@ model Patient {
   medicalHistory     String?
   active             Boolean         @default(true)
   companyId          Int
+  branchId           Int?
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
   additionalInfo     String?
@@ -150,6 +158,11 @@ model Patient {
   treatmentPlans     TreatmentPlan[]
   consents           PatientConsent[]
   patientFiles       PatientFile[]
+  prescriptions      Prescription[]
+  fcmToken           String?
+  branch             Branch?         @relation(fields: [branchId], references: [id])
+
+  @@unique([companyId, documentId])
 }
 
 model Appointment {
@@ -537,6 +550,15 @@ model ProfilePermission {
   @@id([profileId, permissionId])
 }
 
+model UserBranch {
+  userId   Int
+  branchId Int
+  user     User   @relation(fields: [userId], references: [id])
+  branch   Branch @relation(fields: [branchId], references: [id])
+
+  @@id([userId, branchId])
+}
+
 // ── Series de comprobantes por sede ──────────────────────────────────────────
 // Configura el prefijo de serie (ej: SM1, SM2, B001, F001) para cada sede+tipo.
 // El correlativo real se deriva de la tabla Invoice para garantizar consistencia.
@@ -609,4 +631,33 @@ model InventoryMovement {
   createdBy       Int
   createdAt       DateTime @default(now())
   product         InventoryProduct @relation(fields: [productId], references: [id])
+}
+
+// ── Recetas Médicas / Prescripciones (Portal del Paciente) ──────────────────
+model Prescription {
+  id          Int                @id @default(autoincrement())
+  patientId   Int
+  doctorId    Int
+  companyId   Int
+  branchId    Int?
+  notes       String?            // Indicaciones generales
+  date        DateTime           @default(now())
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  patient     Patient            @relation(fields: [patientId], references: [id])
+  doctor      User               @relation(fields: [doctorId], references: [id])
+  company     Company            @relation(fields: [companyId], references: [id])
+  branch      Branch?            @relation(fields: [branchId], references: [id])
+  items       PrescriptionItem[]
+}
+
+model PrescriptionItem {
+  id             Int          @id @default(autoincrement())
+  prescriptionId Int
+  medicineName   String       // Nombre del medicamento
+  dosage         String       // Dosis (ej: 500mg)
+  frequency      String       // Frecuencia (ej: cada 8 horas)
+  duration       String?      // Duración (ej: por 5 días)
+  instructions   String?      // Instrucciones adicionales
+  prescription   Prescription @relation(fields: [prescriptionId], references: [id])
 }

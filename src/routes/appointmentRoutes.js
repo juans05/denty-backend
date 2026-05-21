@@ -11,6 +11,7 @@ router.get('/available-days', appointmentController.getAvailableDays);
 router.get('/', appointmentController.getAppointments);
 router.post('/', appointmentController.createAppointment);
 router.put('/:id/attend', appointmentController.attendAppointment);
+router.put('/:id/respond', appointmentController.respondToAppointment);
 router.put('/:id', appointmentController.updateAppointment);
 router.delete('/:id', appointmentController.deleteAppointment);
 

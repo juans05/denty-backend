@@ -7,6 +7,8 @@
     "start": "npx prisma migrate deploy && node src/server.js",
     "start:local": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "fix-db": "npx prisma migrate resolve --rolled-back 20260227000000_add_invoice_customer_fields && npx prisma migrate deploy",
+    "db:repair": "npx prisma migrate resolve --applied 20260408000000_fix_invoice_baseline",
     "build": "npx prisma generate",
     "postinstall": "npx prisma generate",
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -33,12 +35,14 @@
     "bcryptjs": "^3.0.3",
     "cloudinary": "^1.41.3",
     "exceljs": "^4.4.0",
+    "firebase-admin": "^13.8.0",
     "jsonwebtoken": "^9.0.3",
     "jspdf": "^4.2.0",
     "jspdf-autotable": "^5.0.7",
     "multer": "^2.0.2",
     "multer-storage-cloudinary": "^4.0.0",
     "nodemailer": "^8.0.1",
-    "pg": "^8.18.0"
+    "pg": "^8.18.0",
+    "resend": "^6.10.0"
   }
 }

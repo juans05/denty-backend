@@ -41,16 +41,23 @@ async function checkSchedule(doctorId, branchId, appointmentDate, duration) {
 
 // Verifica si el slot está dentro de un bloqueo
 async function checkBlockedSlot(doctorId, branchId, startAt, endAt) {
+    console.log(`[checkBlockedSlot] Checking branch ${branchId}, doctor ${doctorId}, interval: ${startAt.toISOString()} - ${endAt.toISOString()}`);
+    
     const blocked = await prisma.blockedSlot.findFirst({
         where: {
-            branchId,
-            startAt: { lte: endAt },
-            endAt:   { gte: startAt },
-            OR: [{ doctorId: null }, { doctorId }]
+            branchId: parseInt(branchId),
+            startAt: { lt: endAt },
+            endAt:   { gt: startAt },
+            OR: [
+                { doctorId: null }, 
+                { doctorId: parseInt(doctorId) }
+            ]
         }
     });
+
     if (blocked) {
-        return { ok: false, msg: blocked.reason ? `Horario bloqueado: ${blocked.reason}` : 'Horario bloqueado' };
+        console.warn(`[checkBlockedSlot] BLOCKED found ID: ${blocked.id}, reason: ${blocked.reason}`);
+        return { ok: false, msg: blocked.reason ? `Horario bloqueado: ${blocked.reason}` : 'Horario bloqueado por configuración de sede.' };
     }
     return { ok: true };
 }
@@ -176,9 +183,8 @@ const createAppointment = async (req, res) => {
         }
 
         // ── Validar bloqueos ────────────────────────────────────────────────
-        const endTime2 = new Date(appointmentDate.getTime() + appDuration * 60000);
         const blockedCheck = await checkBlockedSlot(
-            parseInt(doctorId), parseInt(branchId), appointmentDate, endTime2
+            parseInt(doctorId), parseInt(branchId), appointmentDate, endTime
         );
         if (!blockedCheck.ok) {
             return res.status(409).json({ message: blockedCheck.msg });
@@ -198,8 +204,8 @@ const createAppointment = async (req, res) => {
                 status: 'SCHEDULED'
             },
             include: {
-                patient: { select: { id: true, firstName: true, paternalSurname: true, email: true } },
-                doctor:  { select: { id: true, name: true, email: true } },
+                patient: { select: { id: true, firstName: true, paternalSurname: true, email: true, fcmToken: true } },
+                doctor:  { select: { id: true, name: true, email: true, fcmToken: true } },
                 branch:  { select: { name: true } }
             }
         });
@@ -267,12 +273,27 @@ const updateAppointment = async (req, res) => {
 
         const isOverlapping = allPotentialOverlaps.some(app => {
             const startB = new Date(app.date);
-            const endB = new Date(startB.getTime() + (app.duration || 30) * 60000);
             return (newDate < endB) && (newEndTime > startB);
         });
 
         if (isOverlapping) {
             return res.status(409).json({ message: 'El doctor ya tiene una cita programada en este horario.' });
+        }
+
+        // ── Validar horario del médico ──────────────────────────────────────
+        const scheduleCheck = await checkSchedule(
+            newDoctorId, existingApp.branchId, newDate, newDuration
+        );
+        if (!scheduleCheck.ok) {
+            return res.status(409).json({ message: scheduleCheck.msg });
+        }
+
+        // ── Validar bloqueos ────────────────────────────────────────────────
+        const blockedCheck = await checkBlockedSlot(
+            newDoctorId, existingApp.branchId, newDate, newEndTime
+        );
+        if (!blockedCheck.ok) {
+            return res.status(409).json({ message: blockedCheck.msg });
         }
 
         const appointment = await prisma.appointment.update({
@@ -289,7 +310,7 @@ const updateAppointment = async (req, res) => {
                 updatedAt: new Date()
             },
             include: {
-                patient: { select: { id: true, firstName: true, paternalSurname: true, email: true } }
+                patient: { select: { id: true, firstName: true, paternalSurname: true, email: true, fcmToken: true } }
             }
         });
 
@@ -407,7 +428,7 @@ const attendAppointment = async (req, res) => {
     }
 };
 
-// GET /api/appointments/doctors?branchId=X — doctors that work at a branch
+// GET /api/appointments/doctors?branchId=X — doctors that work at a branch, including their schedule
 const getDoctorsByBranch = async (req, res) => {
     try {
         const companyId = parseInt(req.user.companyId);
@@ -415,18 +436,40 @@ const getDoctorsByBranch = async (req, res) => {
 
         if (!branchId) return res.status(400).json({ message: 'Se requiere branchId' });
 
-        // Get doctors who have appointments at this branch OR all company doctors
+        // Get doctors who have active schedules at this branch or all company doctors
         const doctors = await prisma.user.findMany({
             where: {
                 companyId,
                 role: { in: ['DENTIST', 'ADMIN'] },
                 active: true,
             },
-            select: { id: true, name: true, role: true },
+            include: {
+                doctorSchedules: {
+                    where: {
+                        branchId: parseInt(branchId),
+                        active: true
+                    }
+                }
+            },
             orderBy: { name: 'asc' }
         });
 
-        res.json(doctors);
+        // Transform response: include only basic info + schedule for this branch
+        const result = doctors.map(doctor => ({
+            id: doctor.id,
+            name: doctor.name,
+            role: doctor.role,
+            schedule: doctor.doctorSchedules.length > 0
+                ? doctor.doctorSchedules.map(s => ({
+                    dayOfWeek: s.dayOfWeek,
+                    dayName: ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'][s.dayOfWeek],
+                    startTime: s.startTime,
+                    endTime: s.endTime
+                  }))
+                : []
+        }));
+
+        res.json(result);
     } catch (error) {
         console.error('Error getDoctorsByBranch:', error);
         res.status(500).json({ message: 'Error al obtener doctores', error: error.message });
@@ -635,4 +678,167 @@ const getAvailableDays = async (req, res) => {
     }
 };
 
-module.exports = { getAppointments, createAppointment, updateAppointment, deleteAppointment, attendAppointment, getDoctorsByBranch, getAvailableSlots, getAvailableDays };
+// PUT /api/appointments/:id/respond
+// Allows patient to CONFIRM or DECLINE an appointment
+const respondToAppointment = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body; // 'CONFIRMED' or 'CANCELLED'
+        const patientId = req.user.patientId;
+
+        if (!['CONFIRMED', 'CANCELLED'].includes(status)) {
+            return res.status(400).json({ message: 'Estado no válido. Use CONFIRMED o CANCELLED.' });
+        }
+
+        const appointment = await prisma.appointment.findUnique({
+            where: { id: parseInt(id) },
+            include: { 
+                patient: true,
+                doctor: { select: { id: true, name: true, email: true } },
+                branch: { select: { name: true } }
+            }
+        });
+
+        if (!appointment || appointment.patientId !== patientId) {
+            return res.status(404).json({ message: 'Cita no encontrada o no pertenece al paciente' });
+        }
+
+        const updated = await prisma.appointment.update({
+            where: { id: appointment.id },
+            data: { status, updatedAt: new Date() }
+        });
+
+        // Enviar notificación al médico sobre la respuesta del paciente
+        if (status === 'CONFIRMED') {
+            // Lógica de notificación personalizada aquí si se desea
+            console.log(`Paciente ${appointment.patient.firstName} confirmó cita para el ${appointment.date}`);
+        }
+
+        res.json(updated);
+    } catch (error) {
+        console.error('Error in respondToAppointment:', error);
+        res.status(500).json({ message: 'Error al procesar respuesta de cita' });
+    }
+};
+
+// POST /api/portal/book — El paciente agenda su propia cita desde el app
+const bookAppointmentByPatient = async (req, res) => {
+    try {
+        const patientId = req.user.patientId;
+        const patientBranchId = req.user.branchId;
+        const patientCompanyId = req.user.companyId;
+
+        if (!patientId) {
+            return res.status(403).json({ message: 'Solo pacientes pueden usar este endpoint.' });
+        }
+
+        const { date, doctorId, branchId: bodyBranchId, reason, duration } = req.body;
+        const branchId = bodyBranchId || patientBranchId;
+
+        if (!branchId) {
+            return res.status(400).json({ message: 'No hay sede asignada. Seleccione una sede.' });
+        }
+        if (!doctorId || !date) {
+            return res.status(400).json({ message: 'Campos requeridos: fecha, doctor.' });
+        }
+
+        // Validar que el doctor pertenece a la empresa del paciente
+        const doctor = await prisma.user.findFirst({
+            where: { id: parseInt(doctorId), companyId: parseInt(patientCompanyId), active: true }
+        });
+        if (!doctor) {
+            return res.status(404).json({ message: 'Doctor no encontrado o no pertenece a esta clínica.' });
+        }
+
+        const appointmentDate = new Date(date);
+        const appDuration = duration ? parseInt(duration) : 30;
+        const endTime = new Date(appointmentDate.getTime() + appDuration * 60000);
+
+        // Verificar solapamiento
+        const allPotentialOverlaps = await prisma.appointment.findMany({
+            where: {
+                doctorId: parseInt(doctorId),
+                branchId: parseInt(branchId),
+                status: { in: ['SCHEDULED', 'CONFIRMED'] },
+                date: {
+                    gte: new Date(appointmentDate.getTime() - 24 * 60 * 60 * 1000),
+                    lte: new Date(appointmentDate.getTime() + 24 * 60 * 60 * 1000)
+                }
+            }
+        });
+        const isOverlapping = allPotentialOverlaps.some(app => {
+            const startB = new Date(app.date);
+            const endB = new Date(startB.getTime() + (app.duration || 30) * 60000);
+            return (appointmentDate < endB) && (endTime > startB);
+        });
+        if (isOverlapping) {
+            return res.status(409).json({ message: 'El doctor ya tiene una cita en este horario. Elija otro.' });
+        }
+
+        // Validar horario y bloqueos
+        const scheduleCheck = await checkSchedule(parseInt(doctorId), parseInt(branchId), appointmentDate, appDuration);
+        if (!scheduleCheck.ok) return res.status(409).json({ message: scheduleCheck.msg });
+
+        const blockedCheck = await checkBlockedSlot(parseInt(doctorId), parseInt(branchId), appointmentDate, endTime);
+        if (!blockedCheck.ok) return res.status(409).json({ message: blockedCheck.msg });
+
+        // Crear la cita
+        const appointment = await prisma.appointment.create({
+            data: {
+                date: appointmentDate,
+                reason: reason || null,
+                notes: null,
+                urgency: 'NORMAL',
+                duration: appDuration,
+                patientId: parseInt(patientId),
+                doctorId: parseInt(doctorId),
+                branchId: parseInt(branchId),
+                status: 'SCHEDULED'
+            },
+            include: {
+                patient: { select: { id: true, firstName: true, paternalSurname: true, email: true, fcmToken: true } },
+                doctor:  { select: { id: true, name: true, email: true, fcmToken: true } },
+                branch:  { select: { name: true } }
+            }
+        });
+
+        // Notificaciones (no bloquean la respuesta)
+        try {
+            const company = await prisma.company.findUnique({
+                where: { id: parseInt(patientCompanyId) },
+                select: { name: true, commercialName: true }
+            });
+            const companyName = company?.commercialName || company?.name || 'Clínica Dental';
+            notifyPatientNewAppointment({ patient: appointment.patient, doctor: appointment.doctor, appointment, branchName: appointment.branch?.name || '', companyName }).catch(() => {});
+            notifyDoctorNewAppointment({ doctor: appointment.doctor, patient: appointment.patient, appointment, branchName: appointment.branch?.name || '' }).catch(() => {});
+        } catch (_) {}
+
+        res.status(201).json({
+            message: 'Cita agendada correctamente.',
+            appointment: {
+                id: appointment.id,
+                date: appointment.date,
+                doctor: appointment.doctor?.name,
+                branch: appointment.branch?.name,
+                status: appointment.status,
+                reason: appointment.reason
+            }
+        });
+    } catch (error) {
+        console.error('Error in bookAppointmentByPatient:', error);
+        res.status(500).json({ message: 'Error al agendar la cita', error: error.message });
+    }
+};
+
+module.exports = { 
+    getAppointments, 
+    createAppointment, 
+    updateAppointment, 
+    deleteAppointment, 
+    attendAppointment, 
+    getDoctorsByBranch, 
+    getAvailableSlots, 
+    getAvailableDays,
+    respondToAppointment,
+    bookAppointmentByPatient
+};

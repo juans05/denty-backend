@@ -71,7 +71,7 @@ const getPatientById = async (req, res) => {
 
 const createPatient = async (req, res) => {
     try {
-        const { companyId } = req.user;
+        const { companyId, branchId: userBranchId } = req.user;
 
         if (!companyId) {
             return res.status(400).json({ message: 'Error: El usuario no tiene una compañía asociada.' });
@@ -114,10 +114,41 @@ const createPatient = async (req, res) => {
             hasGuardian,
             guardianName,
             guardianDocumentId,
-            guardianPhone
+            guardianPhone,
+            branchId: requestedBranchId
         } = req.body;
 
+        let finalBranchId = requestedBranchId ? parseInt(requestedBranchId) : null;
+        if (!finalBranchId && userBranchId) {
+            finalBranchId = parseInt(userBranchId);
+        }
+
+        if (!finalBranchId) {
+            const defaultBranch = await prisma.branch.findFirst({
+                where: { companyId: parseInt(companyId) }
+            });
+            finalBranchId = defaultBranch?.id || null;
+        }
+
+        if (finalBranchId) {
+            const branch = await prisma.branch.findFirst({
+                where: {
+                    id: finalBranchId,
+                    companyId: parseInt(companyId)
+                }
+            });
+            if (!branch) {
+                return res.status(400).json({ message: 'Branch inválida para la compañía' });
+            }
+        }
+
         const lastName = `${paternalSurname || ''} ${maternalSurname || ''}`.trim();
+        
+        // Generación automática de HC si no viene en el request (Norma Peruana)
+        let finalHcNumber = hcNumber;
+        if (!finalHcNumber) {
+            finalHcNumber = documentId ? `HC-${documentId}` : `HC-${Date.now()}`;
+        }
 
         const patient = await prisma.patient.create({
             data: {
@@ -133,7 +164,7 @@ const createPatient = async (req, res) => {
                 birthCountry: birthCountry || 'Perú',
                 gender,
                 civilStatus,
-                hcNumber,
+                hcNumber: finalHcNumber,
                 occupation,
                 lineOfBusiness,
                 additionalInfo,
@@ -145,8 +176,8 @@ const createPatient = async (req, res) => {
                 phoneHome,
                 phone,
                 email,
-                webUser,
-                webPassword,
+                webUser: webUser || documentId,
+                webPassword: webPassword || documentId,
                 whatsappEnabled: whatsappEnabled === undefined ? true : whatsappEnabled,
                 ubigeoAddress,
                 ubigeoCode,
@@ -160,7 +191,8 @@ const createPatient = async (req, res) => {
                 guardianDocumentId,
                 guardianPhone,
                 active: true,
-                company: { connect: { id: parseInt(companyId) } }
+                company: { connect: { id: parseInt(companyId) } },
+                ...(finalBranchId ? { branch: { connect: { id: finalBranchId } } } : {})
             }
         });
 
@@ -215,7 +247,8 @@ const updatePatient = async (req, res) => {
             guardianName: data.guardianName,
             guardianDocumentId: data.guardianDocumentId,
             guardianPhone: data.guardianPhone,
-            active: data.active
+            active: data.active,
+            branchId: data.branchId ? parseInt(data.branchId) : undefined
         };
 
         if (updateData.paternalSurname || updateData.maternalSurname) {
